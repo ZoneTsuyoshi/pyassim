@@ -12,13 +12,14 @@ with open('LICENSE') as f:
     license = f.read()
 
 setup(
-    name='sample',
+    name='pyassim',
     version='0.1.0',
-    description='Sample package for Python-Guide.org',
+    description='Package for data assimilation',
     long_description=readme,
-    author='Kenneth Reitz',
-    author_email='me@kennethreitz.com',
-    url='https://github.com/kennethreitz/samplemod',
+    author='Tsuyoshi Ishizone',
+    author_email='',
+    install_requires=['numpy', 'pandas', 'scipy']
+    url='https://github.com/ZoneTsuyoshi/pyassim',
     license=license,
     packages=find_packages(exclude=('tests', 'docs'))
 )

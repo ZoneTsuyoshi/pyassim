@@ -1,0 +1,929 @@
+"""
+=============================
+Inference with Kalman Filter
+=============================
+This module implements the Kalman Filter, Kalman Smoother, and
+EM Algorithm for Linear-Gaussian state space models
+"""
+
+import math
+
+import numpy as np
+try:
+    import cupy
+    print("successfully import cupy at sukf.")
+    xp = cupy
+    from cupy import linalg
+    mask = False
+except:
+    xp = np
+    # from numpy import linalg
+    from scipy import linalg
+    mask = True
+
+from .utils import array1d, array2d
+from .util_functions import _parse_observations, _last_dims, \
+    _determine_dimensionality
+
+# Dimensionality of each Kalman Filter parameter for a single time step
+DIM = {
+    'transition_matrices': 2,
+    'transition_offsets': 1,
+    'observation_matrices': 2,
+    'observation_offsets': 1,
+    'transition_covariance': 2,
+    'observation_covariance': 2,
+    'initial_mean': 1,
+    'initial_covariance': 2,
+}
+
+
+class KalmanFilter(object) :
+    """Implements the Kalman Filter, Kalman Smoother, and EM algorithm.
+    This class implements the Kalman Filter, Kalman Smoother, and EM Algorithm
+    for a Linear Gaussian model specified by,
+    .. math::
+        x_{t+1}   &= F_{t} x_{t} + b_{t} + G_{t} v_{t} \\
+        y_{t}     &= H_{t} x_{t} + d_{t} + w_{t} \\
+        [v_{t}, w_{t}]^T &\sim N(0, [[Q_{t}, S_{t}], [S_{t}, R_{t}]])
+    The Kalman Filter is an algorithm designed to estimate
+    :math:`P(x_t | y_{0:t})`.  As all state transitions and observations are
+    linear with Gaussian distributed noise, these distributions can be
+    represented exactly as Gaussian distributions with mean
+    `x_filt[t]` and covariances `V_filt[t]`.
+    Similarly, the Kalman Smoother is an algorithm designed to estimate
+    :math:`P(x_t | y_{0:T-1})`.
+    The EM algorithm aims to find for
+    :math:`\theta = (F, b, H, d, Q, R, \mu_0, \Sigma_0)`
+    .. math::
+        \max_{\theta} P(y_{0:T-1}; \theta)
+    If we define :math:`L(x_{0:T-1},\theta) = \log P(y_{0:T-1}, x_{0:T-1};
+    \theta)`, then the EM algorithm works by iteratively finding,
+    .. math::
+        P(x_{0:T-1} | y_{0:T-1}, \theta_i)
+    then by maximizing,
+    .. math::
+        \theta_{i+1} = \arg\max_{\theta}
+            \mathbb{E}_{x_{0:T-1}} [
+                L(x_{0:T-1}, \theta)| y_{0:T-1}, \theta_i
+            ]
+
+    Args:
+        observation [n_time, n_dim_obs] {numpy-array, float}
+            also known as :math:`y`. observation value
+            観測値[時間軸,観測変数軸]
+        initial_mean [n_dim_sys] {float} 
+            also known as :math:`\mu_0`. initial state mean
+            初期状態分布の期待値[状態変数軸]
+        initial_covariance [n_dim_sys, n_dim_sys] {numpy-array, float} 
+            also known as :math:`\Sigma_0`. initial state covariance
+            初期状態分布の共分散行列[状態変数軸，状態変数軸]
+        transition_matrices [n_time - 1, n_dim_sys, n_dim_sys] 
+            or [n_dim_sys, n_dim_sys]{numpy-array, float}
+            also known as :math:`F`. transition matrix from x_{t-1} to x_{t}
+            システムモデルの変換行列[時間軸，状態変数軸，状態変数軸]
+             or [状態変数軸，状態変数軸]
+        transition_noise_matrices [n_time - 1, n_dim_sys, n_dim_noise]
+            or [n_dim_sys, n_dim_noise] {numpy-array, float}
+            also known as :math:`G`. transition noise matrix
+            ノイズ変換行列[時間軸，状態変数軸，ノイズ変数軸] or [状態変数軸，ノイズ変数軸]
+        observation_matrices [n_time, n_dim_sys, n_dim_obs] or [n_dim_sys, n_dim_obs]
+             {numpy-array, float}
+            also known as :math:`H`. observation matrix from x_{t} to y_{t}
+            観測行列[時間軸，状態変数軸，観測変数軸] or [状態変数軸，観測変数軸]
+        transition_covariance [n_time - 1, n_dim_noise, n_dim_noise]
+             or [n_dim_sys, n_dim_noise]
+            {numpy-array, float}
+            also known as :math:`Q`. system transition covariance for times
+            システムノイズの共分散行列[時間軸，ノイズ変数軸，ノイズ変数軸]
+        observation_covariance [n_time, n_dim_obs, n_dim_obs] {numpy-array, float} 
+            also known as :math:`R`. observation covariance for times.
+            観測ノイズの共分散行列[時間軸，観測変数軸，観測変数軸]
+        transition_offsets [n_time - 1, n_dim_sys] or [n_dim_sys],
+            {numpy-array, float} 
+            also known as :math:`b`. system offset for times.
+            システムモデルの切片（バイアス，オフセット）[時間軸，状態変数軸] or [状態変数軸]
+        observation_offsets [n_time, n_dim_obs] or [n_dim_obs] {numpy-array, float}
+            also known as :math:`d`. observation offset for times.
+            観測モデルの切片[時間軸，観測変数軸] or [観測変数軸]
+        transition_observation_covariance [n_time, n_dim_obs, n_dim_sys]
+            or [n_dim_obs, n_dim_sys], {numpy-array, float}
+            also known as :math:`S`. covariance between system transition
+            and observation for times.
+            状態ノイズと観測ノイズ間の共分散 [時間軸，観測変数軸，状態変数軸]
+             or [観測変数軸，状態変数軸]
+        em_vars {list, string}
+            variable name list for EM algorithm. subset of ['transition_matrices', \
+            'observation_matrices', 'transition_offsets', 'observation_offsets', \
+            'transition_covariance', 'observation_covariance', 'initial_mean', \
+            'initial_covariance']
+            EMアルゴリズムで最適化する変数リスト
+        transition_covariance_structure {str}
+            covariance structure for system transition. select from ['all', \
+            'triD1', 'triD2']. If `all`, optimize all element of transition matrix.
+            If `triD1`, optimize tridiagonal element when 1 dimension lattice space
+            状態遷移分布の共分散構造
+        observation_covariance_structure {str}
+            : covariance structure for observation. select from ['all', \
+            'triD1', 'triD2']. If `all`, optimize all element of transition matrix.
+            If `triD1`, optimize tridiagonal element when 1 dimension lattice space
+            観測分布の共分散構造
+        transition_vh_length {list or numpy-array, int}
+            : if think 2d lattice space, this shows number of vertical lattice
+            points and number of horizontal lattice points, of transition
+            2次元格子空間の遷移を考えている場合，状態変数の各空間の長さ
+        observation_vh_length {list or numpy-array, int}
+            : if think 2d lattice space, this shows number of vertical lattice
+            points and number of horizontal lattice points, of observation
+            2次元格子空間の遷移を考えている場合，観測変数の各空間の長さ
+        n_dim_sys {int}
+            : dimension of system transition variable
+            システム変数の次元
+        n_dim_obs {int}
+            : dimension of observation variable
+            観測変数の次元
+        dtype {type}
+            : data type of numpy-array
+            numpy のデータ形式
+
+    Attributes:
+        y : `observation`
+        F : `transition_matrices`
+        Q : `transition_covariance`. also includes `transition_noise_matrices`
+        b : `transition_offsets`
+        H : `observation_matrices`
+        R : `observation_covariance`
+        d : `observation_offsets`
+        S : `transition_observation_covariance`
+        transition_cs : `transition_covariance_structure`
+        observation_cs : `observation_covariance_structure`
+        transition_v : `transition_vh_length`
+        observation_v : `observation_vh_length`
+        x_pred [n_time+1, n_dim_sys] {numpy-array, float} 
+            mean of predicted distribution
+            予測分布の平均 [時間軸，状態変数軸]
+        V_pred [n_time+1, n_dim_sys, n_dim_sys] {numpy-array, float}
+            covariance of predicted distribution
+            予測分布の共分散行列 [時間軸，状態変数軸，状態変数軸]
+        x_filt [n_time+1, n_dim_sys] {numpy-array, float}
+            mean of filtered distribution
+            フィルタ分布の平均 [時間軸，状態変数軸]
+        V_filt [n_time+1, n_dim_sys, n_dim_sys] {numpy-array, float}
+            covariance of filtered distribution
+            フィルタ分布の共分散行列 [時間軸，状態変数軸，状態変数軸]
+        x_smooth [n_time, n_dim_sys] {numpy-array, float}
+            mean of RTS smoothed distribution
+            固定区間平滑化分布の平均 [時間軸，状態変数軸]
+        V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+            covariance of RTS smoothed distribution
+            固定区間平滑化の共分散行列 [時間軸，状態変数軸，状態変数軸]
+        filter_update {function}
+            update function from x_{t} to x_{t+1}
+            フィルター更新関数
+    """
+
+    def __init__(self, observation = None,
+                initial_mean = None, initial_covariance = None,
+                transition_matrices = None, observation_matrices = None,
+                transition_covariance = None, observation_covariance = None,
+                transition_noise_matrices = None,
+                transition_offsets = None, observation_offsets = None,
+                transition_observation_covariance = None,
+                em_vars = ['transition_covariance', 'observation_covariance',
+                    'initial_mean', 'initial_covariance'],
+                transition_covariance_structure = 'all',
+                observation_covariance_structure = 'all',
+                transition_vh_length = None,
+                observation_vh_length = None, 
+                n_dim_sys = None, n_dim_obs = None, dtype = xp.float32):
+        """Setup initial parameters.
+        """
+
+        # determine dimensionality
+        self.n_dim_sys = _determine_dimensionality(
+            [(transition_matrices, array2d, -2),
+             (transition_offsets, array1d, -1),
+             (transition_noise_matrices, array2d, -2),
+             (initial_mean, array1d, -1),
+             (initial_covariance, array2d, -2),
+             (observation_matrices, array2d, -1),
+             (transition_observation_covariance, array2d, -2)],
+            n_dim_sys
+        )
+
+        self.n_dim_obs = _determine_dimensionality(
+            [(observation_matrices, array2d, -2),
+             (observation_offsets, array1d, -1),
+             (observation_covariance, array2d, -2),
+             (transition_observation_covariance, array2d, -1)],
+            n_dim_obs
+        )
+ 
+        if transition_noise_matrices is None :
+            self.n_dim_noise = _determine_dimensionality(
+                    [(transition_covariance, array2d, -2)],
+                    self.n_dim_sys
+                )
+            transition_noise_matrices = xp.eye(self.n_dim_noise, dtype = dtype)
+        else :
+            self.n_dim_noise = _determine_dimensionality(
+                    [(transition_noise_matrices, array2d, -1),
+                     (transition_covariance, array2d, -2)]
+                )
+
+        if mask:
+            self.y = _parse_observations(observation)
+        else:
+            self.y = observation
+
+        if initial_mean is None:
+            self.initial_mean = xp.zeros(self.n_dim_sys, dtype = dtype)
+        else:
+            self.initial_mean = initial_mean.astype(dtype)
+        
+        if initial_covariance is None:
+            self.initial_covariance = xp.eye(self.n_dim_sys, dtype = dtype)
+        else:
+            self.initial_covariance = initial_covariance.astype(dtype)
+
+        if transition_matrices is None:
+            self.F = xp.eye(self.n_dim_sys, dtype = dtype)
+        else:
+            self.F = transition_matrices.astype(dtype)
+
+        if transition_covariance is not None:
+            if transition_noise_matrices is not None:
+                self.Q = self._calc_transition_covariance(
+                    transition_noise_matrices,
+                    transition_covariance
+                    ).astype(dtype)
+            else:
+                self.Q = transition_covariance.astype(dtype)
+        else:
+            self.Q = xp.eye(self.n_dim_sys, dtype = dtype)
+
+        if transition_offsets is None :
+            self.b = xp.zeros(self.n_dim_sys, dtype = dtype)
+        else :
+            self.b = transition_offsets.astype(dtype)
+
+        if observation_matrices is None:
+            self.H = xp.eye(self.n_dim_obs, self.n_dim_sys, dtype = dtype)
+        else:
+            self.H = observation_matrices.astype(dtype)
+        
+        if observation_covariance is None:
+            self.R = xp.eye(self.n_dim_obs, dtype = dtype)
+        else:
+            self.R = observation_covariance.astype(dtype)
+
+        if observation_offsets is None :
+            self.d = xp.zeros(self.n_dim_obs, dtype = dtype)
+        else :
+            self.d = observation_offsets.astype(dtype)
+
+        if transition_observation_covariance is None:
+            self.predict_update = self._predict_update_no_noise
+        else:
+            self.S = transition_observation_covariance
+            self.predict_update = self._predict_update_noise
+
+        self.em_vars = em_vars
+        if transition_covariance_structure == 'triD2':
+            if transition_vh_length is None:
+                raise ValueError('you should ixput transition_vh_length.')
+            elif transition_vh_length[0] * transition_vh_length[1] != self.n_dim_sys:
+                raise ValueError('you should confirm transition_vh_length.')
+            else:
+                self.transition_v = transition_vh_length[0]
+                self.transition_cs = transition_covariance_structure
+        elif transition_covariance_structure in ['all', 'triD1']:
+            self.transition_cs = transition_covariance_structure
+        else:
+            raise ValueError('you should confirm transition_covariance_structure.')
+
+        if observation_covariance_structure == 'triD2':
+            if observation_vh_length is None:
+                raise ValueError('you should ixput observation_vh_length.')
+            elif observation_vh_length[0]*observation_vh_length[1] != self.n_dim_obs:
+                raise ValueError('you should confirm observation_vh_length.')
+            else:
+                self.observation_v = observation_vh_length[0]
+                self.observation_cs = observation_covariance_structure
+        elif observation_covariance_structure in ['all', 'triD1']:
+            self.observation_cs = observation_covariance_structure
+        else:
+            raise ValueError('you should confirm observation_covariance_structure.')
+
+        self.dtype = dtype
+
+
+    def forward(self):
+        """Calculate prediction and filter for observation times.
+
+        Attributes:
+            T {int}
+                : length of data y （時系列の長さ）
+            x_pred [n_time, n_dim_sys] {numpy-array, float}
+                : mean of hidden state at time t given observations
+                 from times [0...t-1]
+                時刻 t における状態変数の予測期待値 [時間軸，状態変数軸]
+            V_pred [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+                : covariance of hidden state at time t given observations
+                 from times [0...t-1]
+                時刻 t における状態変数の予測共分散 [時間軸，状態変数軸，状態変数軸]
+            x_filt [n_time, n_dim_sys] {numpy-array, float}
+                : mean of hidden state at time t given observations from times [0...t]
+                時刻 t における状態変数のフィルタ期待値 [時間軸，状態変数軸]
+            V_filt [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+                : covariance of hidden state at time t given observations
+                 from times [0...t]
+                時刻 t における状態変数のフィルタ共分散 [時間軸，状態変数軸，状態変数軸]
+            K [n_dim_sys, n_dim_obs] {numpy-array, float}
+                : Kalman gain matrix for time t [状態変数軸，観測変数軸]
+                カルマンゲイン
+        """
+
+        T = self.y.shape[0]
+        self.x_pred = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_pred = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        self.x_filt = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_filt = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        K = xp.zeros((self.n_dim_sys, self.n_dim_obs), dtype = self.dtype)
+
+        # calculate prediction and filter for every time
+        for t in range(T) :
+            # visualize calculating time
+            print("\r filter calculating... t={}".format(t) + "/" + str(T), end="")
+
+            if t == 0:
+                # initial setting
+                self.x_pred[0] = self.initial_mean
+                self.V_pred[0] = self.initial_covariance
+            else:
+                self.predict_update(t)
+            
+            # If y[t] has any mask, skip filter calculation
+            if (mask and xp.any(xp.ma.getmask(self.y[t]))) or ((not mask) and xp.any(xp.isnan(self.y[t]))) :
+                self.x_filt[t] = self.x_pred[t]
+                self.V_filt[t] = self.V_pred[t]
+            else :
+                # extract parameters for time t
+                H = _last_dims(self.H, t, 2)
+                R = _last_dims(self.R, t, 2)
+                d = _last_dims(self.d, t, 1)
+
+                # calculate filter step
+                K = self.V_pred[t] @ (
+                    H.T @ linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
+                    )
+                self.x_filt[t] = self.x_pred[t] + K @ (
+                    self.y[t] - (H @ self.x_pred[t] + d)
+                    )
+                self.V_filt[t] = self.V_pred[t] - K @ (H @ self.V_pred[t])
+    
+
+    def _predict_update_no_noise(self, t):
+        """Calculate fileter update without noise
+
+        Args:
+            t {int} : observation time
+        """
+        # extract parameters for time t-1
+        F = _last_dims(self.F, t - 1, 2)
+        Q = _last_dims(self.Q, t - 1, 2)
+        b = _last_dims(self.b, t - 1, 1)
+
+        # calculate predicted distribution for time t
+        self.x_pred[t] = F @ self.x_filt[t-1] + b
+        self.V_pred[t] = F @ self.V_filt[t-1] @ F.T + Q
+
+
+    def _predict_update_noise(self, t):
+        """Calculate fileter update without noise
+
+        Args:
+            t {int} : observation time
+        """
+        if xp.any(xp.ma.getmask(self.y[t-1])) :
+            self._predict_update_no_noise(t)
+        else:
+            # extract parameters for time t-1
+            F = _last_dims(self.F, t - 1, 2)
+            Q = _last_dims(self.Q, t - 1, 2)
+            b = _last_dims(self.b, t - 1, 1)
+            H = _last_dims(self.H, t - 1, 2)
+            d = _last_dims(self.d, t - 1, 1)
+            S = _last_dims(self.S, t - 1, 2)
+            R = _last_dims(self.R, t - 1, 2)
+
+            # calculate predicted distribution for time t
+            SR = S @ linalg.pinv(R)
+            F_SRH = F - SR @ H
+            self.x_pred[t] = F_SRH @ self.x_filt[t-1] + b + SR @ (self.y[t-1] - d)
+            self.V_pred[t] = F_SRH @ self.V_filt[t-1] @ F_SRH.T + Q - SR @ S.T
+
+
+    def get_predicted_value(self, dim = None):
+        """Get predicted value
+
+        Args:
+            dim {int} : dimensionality for extract from predicted result
+
+        Returns (numpy-array, float)
+            : mean of hidden state at time t given observations
+            from times [0...t-1]
+        """
+        # if not implement `filter`, implement `filter`
+        try :
+            self.x_pred[0]
+        except :
+            self.filter()
+
+        if dim is None:
+            return self.x_pred
+        elif dim <= self.x_pred.shape[1]:
+            return self.x_pred[:, int(dim)]
+        else:
+            raise ValueError('The dim must be less than '
+                 + self.x_pred.shape[1] + '.')
+
+
+    def get_filtered_value(self, dim = None):
+        """Get filtered value
+
+        Args:
+            dim {int} : dimensionality for extract from filtered result
+
+        Returns (numpy-array, float)
+            : mean of hidden state at time t given observations
+            from times [0...t]
+        """
+        # if not implement `filter`, implement `filter`
+        try :
+            self.x_filt[0]
+        except :
+            self.filter()
+
+        if dim is None:
+            return self.x_filt
+        elif dim <= self.x_filt.shape[1]:
+            return self.x_filt[:, int(dim)]
+        else:
+            raise ValueError('The dim must be less than '
+                 + self.x_filt.shape[1] + '.')
+
+
+    def smooth(self):
+        """Calculate RTS smooth for times.
+
+        Args:
+            T : length of data y (時系列の長さ)
+            x_smooth [n_time, n_dim_sys] {numpy-array, float}
+                : mean of hidden state distributions for times
+                 [0...n_times-1] given all observations
+                時刻 t における状態変数の平滑化期待値 [時間軸，状態変数軸]
+            V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+                : covariances of hidden state distributions for times
+                 [0...n_times-1] given all observations
+                時刻 t における状態変数の平滑化共分散 [時間軸，状態変数軸，状態変数軸]
+            A [n_dim_sys, n_dim_sys] {numpy-array, float}
+                : fixed interval smoothed gain
+                固定区間平滑化ゲイン [時間軸，状態変数軸，状態変数軸]
+        """
+
+        # if not implement `filter`, implement `filter`
+        try :
+            self.x_pred[0]
+        except :
+            self.filter()
+
+        T = self.y.shape[0]
+        self.x_smooth = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_smooth = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        A = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+
+        self.x_smooth[-1] = self.x_filt[-1]
+        self.V_smooth[-1] = self.V_filt[-1]
+
+        # t in [0, T-2] (notice t range is reversed from 1~T)
+        for t in reversed(range(T - 1)) :
+            # visualize calculating times
+            print("\r smooth calculating... t={}".format(T - t)
+                 + "/" + str(T), end="")
+
+            # extract parameters for time t
+            F = _last_dims(self.F, t, 2)
+
+            # calculate fixed interval smoothing gain
+            A = xp.dot(self.V_filt[t], xp.dot(F.T, linalg.pinv(self.V_pred[t + 1])))
+            
+            # fixed interval smoothing
+            self.x_smooth[t] = self.x_filt[t] \
+                + xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
+            self.V_smooth[t] = self.V_filt[t] \
+                + xp.dot(A, xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
+
+            
+    def get_smoothed_value(self, dim = None):
+        """Get RTS smoothed value
+
+        Args:
+            dim {int} : dimensionality for extract from RTS smoothed result
+
+        Returns (numpy-array, float)
+            : mean of hidden state at time t given observations
+            from times [0...T]
+        """
+        # if not implement `smooth`, implement `smooth`
+        try :
+            self.x_smooth[0]
+        except :
+            self.smooth()
+
+        if dim is None:
+            return self.x_smooth
+        elif dim <= self.x_smooth.shape[1]:
+            return self.x_smooth[:, int(dim)]
+        else:
+            raise ValueError('The dim must be less than '
+                 + self.x_smooth.shape[1] + '.')
+
+
+    def em(self, n_iter = 10, em_vars = None):
+        """Apply the EM algorithm to estimate all parameters specified by `em_vars`.
+
+        Args:
+            n_iter {int}
+                : number of EM iterations to perform
+                EM algorithm におけるイテレーション回数
+            em_vars {list or str}
+                : iterable of strings or 'all' variables to perform EM over.
+                Any variable not appearing here is left untouched.
+                EM algorithm で最適化するパラメータ群
+        """
+
+        # Create dictionary of variables not to perform EM on
+        # em_vars が入力されなかったらクラス作成時に入力した em_vars を使用
+        if em_vars is None:
+            em_vars = self.em_vars
+
+        if em_vars == 'all':
+            # if `all`, not given known parameters
+            given = {}
+        else:
+            given = {
+                'transition_matrices': self.F,
+                'observation_matrices': self.H,
+                'transition_offsets': self.b,
+                'observation_offsets': self.d,
+                'transition_covariance': self.Q,
+                'observation_covariance': self.R,
+                'initial_mean': self.initial_mean,
+                'initial_covariance': self.initial_covariance
+            }
+            # If `em_vars` has elements, remove them from `given`
+            em_vars = set(em_vars)
+            for k in list(given.keys()):
+                if k in em_vars:
+                    given.pop(k)
+
+        # Actual EM iterations
+        for i in range(n_iter):
+            print("EM calculating... i={}".format(i+1) + "/" + str(n_iter), end="")
+
+            # Expectation step
+            self.filter()
+            
+            # system covariance transition between time t and t-1
+            self._sigma_pair_smooth()
+
+            # Maximumization step
+            self._calc_em(given = given)
+        return self
+
+
+    # calculate transition covariance
+    def _calc_transition_covariance(self, G, Q):
+        """Calculate transition covariance
+
+        Args:
+            G [n_time - 1, n_dim_sys, n_dim_noise] or [n_dim_sys, n_dim_noise]
+                {numpy-array, float}
+                transition noise matrix
+                ノイズ変換行列[時間軸，状態変数軸，ノイズ変数軸] or [状態変数軸，ノイズ変数軸]
+            Q [n_time - 1, n_dim_noise, n_dim_noise] or [n_dim_sys, n_dim_noise]
+                {numpy-array, float}
+                system transition covariance for times
+                システムノイズの共分散行列[時間軸，ノイズ変数軸，ノイズ変数軸]
+        """
+        if G.ndim == 2:
+            GT = G.T
+        elif G.ndim == 3:
+            GT = G.transpose(0,2,1)
+        else:
+            raise ValueError('The ndim of transition_noise_matrices'
+                + ' should be 2 or 3,' + ' but your ixput is ' + str(G.ndim) + '.')
+        if Q.ndim == 2 or Q.ndim == 3:
+            return xp.matmul(G, xp.matmul(Q, GT))
+        else:
+            raise ValueError('The ndim of transition_covariance should be 2 or 3,'
+                + ' but your ixput is ' + str(Q.ndim) + '.')
+
+
+    # sigma pair smooth 計算
+    # EM のメモリセーブのために平滑化も中に組み込む
+    def _sigma_pair_smooth(self):
+        """Calculate covariance between hidden states at time t and t-1
+
+        Attributes:
+            T {int} : length of y (時系列の長さ) 
+            V_pair [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+                : Covariance between hidden states at times t and t-1
+                 for t = [1...n_timesteps-1].  Time 0 is ignored.
+                時刻t,t-1間の状態の共分散．0は無視する
+        """
+
+        T = self.y.shape[0]
+        self.x_smooth = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_smooth = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+
+        # pairwise covariance
+        self.V_pair = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        A = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+
+        self.x_smooth[-1] = self.x_filt[-1]
+        self.V_smooth[-1] = self.V_filt[-1]
+
+        # t in [0, T-2]
+        for t in reversed(range(T - 1)) :
+            # visualize calculating time
+            print("\r expectation step calculating... t={}".format(T - t)
+                 + "/" + str(T), end="")
+
+            # extract parameters at time t
+            F = _last_dims(self.F, t, 2)
+
+            # calculate fixed interval smoothing gain
+            A = xp.dot(self.V_filt[t], xp.dot(F.T, linalg.pinv(self.V_pred[t + 1])))
+            
+            # fixed interval smoothing
+            self.x_smooth[t] = self.x_filt[t] \
+                + xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
+            self.V_smooth[t] = self.V_filt[t] \
+                + xp.dot(A, xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
+
+            # calculate pairwise covariance
+            self.V_pair[t + 1] = xp.dot(self.V_smooth[t], A.T)
+
+
+    def _calc_em(self, given = {}):
+        """Calculate parameters by EM algorithm
+
+        Attributes:
+            T {int} : length of observation y
+        """
+
+        # length of y
+        T = self.y.shape[0]
+
+        # update `observation_matrices`
+        if 'observation_matrices' not in given:
+            """math
+            y_t : observation, d_t : observation_offsets
+            x_t : system, H : observation_matrices
+
+            H &= ( \sum_{t=0}^{T-1} (y_t - d_t) \mathbb{E}[x_t]^T )
+             ( \sum_{t=0}^{T-1} \mathbb{E}[x_t x_t^T] )^-1
+            """
+            res1 = xp.zeros((self.n_dim_obs, self.n_dim_sys), dtype = self.dtype)
+            res2 = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+
+            for t in range(T):
+                if not xp.any(xp.ma.getmask(self.y[t])):
+                    d = _last_dims(self.d, t, 1)
+                    res1 += xp.outer(self.y[t] - d, self.x_smooth[t])
+                    res2 += self.V_smooth[t] \
+                        + xp.outer(self.x_smooth[t], self.x_smooth[t])
+
+            # update `observation_matrices` or `H`
+            self.H = xp.dot(res1, linalg.pinv(res2))
+
+
+        # update `observation_covariance`
+        if 'observation_covariance' not in given:
+            """math
+            R : observation_covariance, H_t : observation_matrices,
+            x_t : system, d_t : observation_offsets, y_t : observation
+
+            R &= \frac{1}{T} \sum_{t=0}^{T-1}
+                [y_t - H_t \mathbb{E}[x_t] - d_t]
+                    [y_t - H_t \mathbb{E}[x_t] - d_t]^T
+                + H_t Var(x_t) H_t^T
+            """
+
+            # y : n_time x n_obs, d : n_obs
+            # H : n_obs x n_sys, x_smooth : n_time x n_sys
+            # err : n_time x n_obs
+            boolm = ~xp.any(self.y.mask, axis=1)
+            err = self.y[boolm] - (self.H @ self.x_smooth[boolm].T).T \
+                 - self.d.reshape(1,len(self.d))
+            res1 = err.T @ err + self.H @ self.V_smooth[boolm].sum(axis=0) @ self.H.T
+            n_obs = boolm.astype(xp.int).sum()
+
+            if n_obs > 0:
+                self.R = (1.0 / n_obs) * res1
+            else:
+                self.R = res1
+
+            # divided about `covariance_structure`
+            if self.observation_cs == 'triD1':
+                # definite new `R`
+                new_R = xp.zeros_like(self.R, dtype=self.dtype)
+
+                # average diagonal elements
+                xp.fill_diagonal(new_R, self.R.diagonal().mean())
+
+                # average tridiagonal elements
+                rho = (self.R.diagonal(1).mean() + self.R.diagonal(-1).mean()) / 2
+
+                # unify results
+                self.R = new_R + xp.diag(rho * xp.ones(self.n_dim_obs - 1), 1) \
+                     + xp.diag(rho * xp.ones(self.n_dim_obs - 1), -1)
+            elif self.observation_cs == 'triD2':
+                # definite new `R`
+                new_R = xp.zeros_like(self.R, dtype=self.dtype)
+
+                # average diagonal elements
+                xp.fill_diagonal(new_R, self.R.diagonal().mean())
+
+                # average tridiagonal and adjacency elements
+                start_time = time.time()
+                td = xp.ones(self.n_dim_obs - 1)
+                td[self.observation_v-1::self.observation_v-1] = 0
+                condition = xp.diag(td, 1) + xp.diag(td, -1) \
+                    + xp.diag(
+                        xp.ones(self.n_dim_obs - self.observation_v),
+                        self.observation_v
+                        ) \
+                    + xp.diag(
+                        xp.ones(self.n_dim_obs - self.observation_v),
+                        self.observation_v
+                        )
+                rho = self.R[condition.astype(bool)].mean()
+
+                # unify results
+                self.R = new_R + rho * condition.astype(self.dtype)
+
+
+        # update `transition_matrices`
+        if 'transition_matrices' not in given:
+            """math
+            F : transition_matrices, x_t : system,
+            b_t : transition_offsets
+
+            F &= ( \sum_{t=1}^{T-1} \mathbb{E}[x_t x_{t-1}^{T}]
+                - b_{t-1} \mathbb{E}[x_{t-1}]^T )
+             ( \sum_{t=1}^{T-1} \mathbb{E}[x_{t-1} x_{t-1}^T] )^{-1}
+            """
+            res1 = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+            res2 = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+            for t in range(1, T):
+                b = _last_dims(self.b, t - 1, 1)
+                res1 += self.V_pair[t] + xp.outer(
+                    self.x_smooth[t], self.x_smooth[t - 1]
+                    )
+                res1 -= xp.outer(b, self.x_smooth[t - 1])            
+                res2 += self.V_smooth[t - 1] \
+                    + xp.outer(self.x_smooth[t - 1], self.x_smooth[t - 1])
+
+            self.F = xp.dot(res1, linalg.pinv(res2))
+
+
+        # update `transition_covariance`
+        if 'transition_covariance' not in given:
+            """math
+            Q : transition_covariance, x_t : system, 
+            b_t : transition_offsets, F_t : transition_matrices
+
+            Q &= \frac{1}{T-1} \sum_{t=0}^{T-2}
+                (\mathbb{E}[x_{t+1}] - A_t \mathbb{E}[x_t] - b_t)
+                    (\mathbb{E}[x_{t+1}] - A_t \mathbb{E}[x_t] - b_t)^T
+                + F_t Var(x_t) F_t^T + Var(x_{t+1})
+                - Cov(x_{t+1}, x_t) F_t^T - F_t Cov(x_t, x_{t+1})
+            """
+
+            # x_smooth : n_time x n_sys, F : n_sys x n_sys
+            # V_pair, V_smooth : n_time x n_sys x n_sys
+            # err : n_time x n_sys, Vt1t_F : n_sys x n_sys
+            err = self.x_smooth[1:] \
+                - self.x_smooth[:-1] @ self.F.T \
+                - self.b.reshape(1,len(self.b))
+            Vt1t_F = self.V_pair[1:].sum(axis=0) @ self.F.T
+            res1 = err.T @ err \
+                + self.F @ (self.V_smooth[:-1] @ self.F.T).sum(axis=0) \
+                + self.V_smooth[1:].sum(axis=0) - Vt1t_F - Vt1t_F.T
+
+            self.Q = (1.0 / (T - 1)) * res1
+
+            # devided about `covariance_structure`
+            if self.transition_cs == 'triD1':
+                # definite new `Q`
+                new_Q = xp.zeros_like(self.Q, dtype=self.dtype)
+
+                # average diagonal elements
+                xp.fill_diagonal(new_Q, self.Q.diagonal().mean())
+
+                # average tridiagonal elements
+                rho = (self.Q.diagonal(1).mean() + self.Q.diagonal(-1).mean()) / 2
+
+                # unify results
+                self.Q = new_Q + xp.diag(rho * xp.ones(self.n_dim_sys - 1), 1)\
+                     + xp.diag(rho * xp.ones(self.n_dim_sys - 1), -1)
+            elif self.transition_cs == 'triD2':
+                # definite new `R`
+                new_Q = xp.zeros_like(self.Q, dtype=self.dtype)
+
+                # average diagonal elements
+                xp.fill_diagonal(new_Q, self.Q.diagonal().mean())
+
+                # average tridiagonal and adjacency elements
+                td = xp.ones(self.n_dim_sys - 1)
+                td[self.transition_v-1::self.transition_v-1] = 0
+                condition = xp.diag(td, 1) + xp.diag(td, -1) \
+                    + xp.diag(
+                        xp.ones(self.n_dim_sys - self.transition_v),
+                        self.transition_v
+                        ) \
+                    + xp.diag(
+                        xp.ones(self.n_dim_sys - self.transition_v),
+                        self.transition_v
+                        )
+                rho = self.Q[condition.astype(bool)].mean()
+
+                # unify results
+                self.Q = new_Q + rho * condition.astype(self.dtype)
+
+        # update `initial_mean`
+        if 'initial_mean' not in  given:
+            """math
+            x_0 : system of t=0
+                \mu_0 = \mathbb{E}[x_0]
+            """
+            tmp = self.initial_mean
+            self.initial_mean = self.x_smooth[0]
+
+
+        # update `initial_covariance`
+        if 'initial_covariance' not in given:
+            """math
+            mu_0 : system of t=0
+                \Sigma_0 = \mathbb{E}[x_0, x_0^T] - \mu_0 \mu_0^T
+            """
+            x0 = self.x_smooth[0]
+            x0_x0 = self.V_smooth[0] + xp.outer(x0, x0)
+
+            self.initial_covariance = x0_x0 - xp.outer(self.initial_mean, x0)
+            self.initial_covariance += - xp.outer(x0, self.initial_mean)\
+                 + xp.outer(self.initial_mean, self.initial_mean)
+
+
+        # update `transition_offsets`
+        if 'transition_offsets' not in given:
+            """math
+            b : transition_offsets, x_t : system
+            F_t : transition_matrices
+                b = \frac{1}{T-1} \sum_{t=1}^{T-1}
+                        \mathbb{E}[x_t] - F_{t-1} \mathbb{E}[x_{t-1}]
+            """
+            self.b = xp.zeros(self.n_dim_sys, dtype = self.dtype)
+
+            if T > 1:
+                for t in range(1, T):
+                    F = _last_dims(self.F, t - 1)
+                    self.b += self.x_smooth[t] - xp.dot(F, self.x_smooth[t - 1])
+                self.b *= (1.0 / (T - 1))
+
+
+        # update `observation_offsets`
+        if 'observation_offsets' not in given:
+            """math
+            d : observation_offsets, y_t : observation
+            H_t : observation_matrices, x_t : system
+                d = \frac{1}{T} \sum_{t=0}^{T-1} y_t - H_{t} \mathbb{E}[x_{t}]
+            """
+            self.d = xp.zeros(self.n_dim_obs, dtype = self.dtype)
+            n_obs = 0
+            for t in range(T):
+                if not xp.any(xp.ma.getmask(self.y[t])):
+                    H = _last_dims(self.H, t)
+                    self.d += self.y[t] - xp.dot(H, self.x_smooth[t])
+                    n_obs += 1
+            if n_obs > 0:
+                self.d *= (1.0 / n_obs)
+
