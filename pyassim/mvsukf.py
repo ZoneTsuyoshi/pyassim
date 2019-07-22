@@ -1,7 +1,7 @@
 """
-=============================
-Inference with Sequential Update Kalman Filter
-=============================
+=============================================================
+Inference with Missing Value Sequential Update Kalman Filter
+=============================================================
 This module implements the Sequential Update Kalman Filter
 and Kalman Smoother for Linear-Gaussian state space models
 """
@@ -15,13 +15,13 @@ from .util_functions import _parse_observations, _last_dims, \
     _determine_dimensionality
 
 
-class SequentialUpdateKalmanFilter(object) :
+class MissingValueSequentialUpdateKalmanFilter(object) :
     """Implements the Kalman Filter, Kalman Smoother, and EM algorithm.
     This class implements the Kalman Filter, Kalman Smoother, and EM Algorithm
     for a Linear Gaussian model specified by,
     .. math::
-        x_{t+1}   &= F_{t} x_{t} + b_{t} + v_{t} \\
-        y_{t}     &= H_{t} x_{t} + d_{t} + w_{t} \\
+        x_{t+1}   &= F_{t} x_{t} + v_{t} \\
+        y_{t}     &= x_{t} + w_{t} \\
         [v_{t}, w_{t}]^T &\sim N(0, [[Q_{t}, O], [O, R_{t}]])
     The Kalman Filter is an algorithm designed to estimate
     :math:`P(x_t | y_{0:t})`.  As all state transitions and observations are
@@ -32,7 +32,7 @@ class SequentialUpdateKalmanFilter(object) :
     :math:`P(x_t | y_{0:T-1})`.
 
     Args:
-        observation [n_time, n_dim_obs] {numpy-array, float}
+        observation [n_time, n_dim_sys] {numpy-array, float}
             also known as :math:`y`. observation value
             観測値[時間軸,観測変数軸]
         initial_mean [n_dim_sys] {float} 
@@ -45,7 +45,7 @@ class SequentialUpdateKalmanFilter(object) :
             or [n_dim_sys, n_dim_sys]{numpy-array, float}
             also known as :math:`F`. transition matrix from x_{t-1} to x_{t}
             システムモデルの変換行列[状態変数軸，状態変数軸]
-        observation_matrices [n_time, n_dim_sys, n_dim_obs] or [n_dim_sys, n_dim_obs]
+        observation_matrices [n_time, n_dim_sys, n_dim_sys] or [n_dim_sys, n_dim_sys]
              {numpy-array, float}
             also known as :math:`H`. observation matrix from x_{t} to y_{t}
             観測行列[時間軸，状態変数軸，観測変数軸] or [状態変数軸，観測変数軸]
@@ -54,7 +54,7 @@ class SequentialUpdateKalmanFilter(object) :
             {numpy-array, float}
             also known as :math:`Q`. system transition covariance for times
             システムノイズの共分散行列[時間軸，ノイズ変数軸，ノイズ変数軸]
-        observation_covariance [n_time, n_dim_obs, n_dim_obs] {numpy-array, float} 
+        observation_covariance [n_time, n_dim_sys, n_dim_sys] {numpy-array, float} 
             also known as :math:`R`. observation covariance for times.
             観測ノイズの共分散行列[時間軸，観測変数軸，観測変数軸]
         update_interval {int}
@@ -64,9 +64,6 @@ class SequentialUpdateKalmanFilter(object) :
         n_dim_sys {int}
             : dimension of system transition variable
             システム変数の次元
-        n_dim_obs {int}
-            : dimension of observation variable
-            観測変数の次元
         dtype {type}
             : data type of numpy-array
             numpy のデータ形式
@@ -106,11 +103,12 @@ class SequentialUpdateKalmanFilter(object) :
 
     def __init__(self, observation = None,
                 initial_mean = None, initial_covariance = None,
-                transition_matrices = None, observation_matrices = None,
+                transition_matrices = None,
                 transition_covariance = None, observation_covariance = None,
                 update_interval = 1, eta = 0.1, cutoff = 0.1, 
+                mvmode = "filter",
                 save_transition_matrix_change = True, calculate_variance = False,
-                n_dim_sys = None, n_dim_obs = None, dtype = "float32",
+                n_dim_sys = None, dtype = "float32",
                 xp = "numpy"):
         """Setup initial parameters.
         """
@@ -125,14 +123,8 @@ class SequentialUpdateKalmanFilter(object) :
             [(transition_matrices, array2d, -2),
              (initial_mean, array1d, -1),
              (initial_covariance, array2d, -2),
-             (observation_matrices, array2d, -1)],
-            n_dim_sys
-        )
-
-        self.n_dim_obs = _determine_dimensionality(
-            [(observation_matrices, array2d, -2),
              (observation_covariance, array2d, -2)],
-            n_dim_obs
+            n_dim_sys
         )
 
         # self.y = _parse_observations(observation)
@@ -157,18 +149,21 @@ class SequentialUpdateKalmanFilter(object) :
             self.Q = transition_covariance.astype(dtype)
         else:
             self.Q = self.xp.eye(self.n_dim_sys, dtype = dtype)
-
-        if observation_matrices is None:
-            self.H = self.xp.eye(self.n_dim_obs, self.n_dim_sys, dtype = dtype)
-        else:
-            self.H = observation_matrices.astype(dtype)
         
         if observation_covariance is None:
-            self.R = self.xp.eye(self.n_dim_obs, dtype = dtype)
+            self.R = self.xp.eye(self.n_dim_sys, dtype = dtype)
         else:
             self.R = observation_covariance.astype(dtype)
 
         self.update_interval = int(update_interval)
+
+        if mvmode in ["filter", "smooth"]:
+            self.mvmode = mvmode
+            if mvmode=="smooth":
+                self.bnP = self.xp.isnan(self.y[0])
+        else:
+            raise ValueError("Variable \"mvmode\" only allows \"filter\" or \"smooth\"."
+                + "However, your choice is \"{}\".".format(mvmode))
 
         if calculate_variance:
             self.calculate_variance = True
@@ -178,14 +173,12 @@ class SequentialUpdateKalmanFilter(object) :
             self.calculate_variance = False
 
         if save_transition_matrix_change:
-            self.Fs = self.xp.zeros((len(self.y-1)//self.update_interval+1,
+            self.Fs = self.xp.zeros(((len(self.y)-1)//self.update_interval+1,
                                 self.F.shape[0], self.F.shape[1]))
-            # self.Fs = self.xp.zeros((math.floor(len(self.y)/self.update_interval)+1,
-            #                     self.F.shape[0], self.F.shape[1]))
             self.Fs[0] = self.F
 
             if calculate_variance:
-                self.FV = self.xp.zeros((len(self.y-1)//self.update_interval+1,
+                self.FV = self.xp.zeros(((len(self.y)-1)//self.update_interval+1,
                                 self.F.shape[0], self.F.shape[1]))
 
         self.eta = eta
@@ -236,12 +229,6 @@ class SequentialUpdateKalmanFilter(object) :
             else:
                 self._predict_update(t)
             
-            # If y[t] has any mask, skip filter calculation
-            # if self.xp.any(self.xp.ma.getmask(self.y[t])) :
-            # if self.xp.any(self.xp.isnan(self.y[t])) :
-            #     self.x_filt[t] = self.x_pred[t]
-            #     self.V_filt[t] = self.V_pred[t]
-            # else :
             self._filter_update(t)
             # ToDo : if there exists nan, more consider this part
             if t>0 and t%self.update_interval==0:
@@ -273,25 +260,18 @@ class SequentialUpdateKalmanFilter(object) :
             t {int} : observation time
 
         Attributes:
-            K [n_dim_sys, n_dim_obs] {numpy-array, float}
+            K [n_dim_obs_per_timestep, n_dim_sys] {numpy-array, float}
                 : Kalman gain matrix for time t [状態変数軸，観測変数軸]
                 カルマンゲイン
         """
         # extract parameters for time t
-        H = _last_dims(self.H, t, 2)
         R = _last_dims(self.R, t, 2)
+        P = ~self.xp.isnan(self.y[t])
 
         # calculate filter step
-        K = self.V_pred[t] @ (
-            H.T @ self.xp.linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
-            )
-        target = self.xp.isnan(self.y[t])
-        self.y[t][target] = (H @ self.x_pred[t])[target]
-        self.x_filt[t] = self.x_pred[t] + K @ (
-            self.y[t] - (H @ self.x_pred[t])
-            )
-        self.y[t][target] = (H @ self.x_filt[t])[target]
-        self.V_filt[t] = self.V_pred[t] - K @ (H @ self.V_pred[t])
+        K = self.V_pred[t][:,P] @ self.xp.linalg.pinv(self.V_pred[t][self.xp.ix_(P,P)] + R[self.xp.ix_(P,P)])
+        self.x_filt[t] = self.x_pred[t] + K @ (self.y[t][P] - self.x_pred[t][P])
+        self.V_filt[t] = self.V_pred[t] - K @ self.V_pred[t][P,:]
 
 
     def _update_transition_matrix(self, t):
@@ -300,18 +280,68 @@ class SequentialUpdateKalmanFilter(object) :
         Args:
             t {int} : observation time
         """
-        Hb = _last_dims(self.H, t-1, 2)
-        H  = _last_dims(self.H, t, 2)
+        if self.mvmode == "filter":
+            for t in range(t-self.update_interval, t+1):
+                nP = self.xp.isnan(self.y[t])
+                self.y[t][nP] = self.x_filt[t][nP]
+        elif self.mvmode == "smooth":
+            self._smooth(t)
 
-        # Fh = self.xp.linalg.pinv(Hb) @ self.y[t-min(self.n_dim_obs, self.update_interval)+1:t+1].T \
-        #         @ self.xp.linalg.pinv(self.y[t-min(self.n_dim_obs, self.update_interval):t].T) @ H
-        Fh = self.xp.linalg.pinv(H) @ self.y[t-self.update_interval+1:t+1].T \
-                @ self.xp.linalg.pinv(self.y[t-self.update_interval:t].T) @ Hb
-        # self.F = (1 - self.eta) * self.F + self.eta * Fh
+        Fh = self.y[t-self.update_interval+1:t+1].T \
+                @ self.xp.linalg.pinv(self.y[t-self.update_interval:t].T)
         self.F = self.F - self.eta * self.xp.minimum(self.xp.maximum(-self.cutoff, self.F - Fh), self.cutoff)
 
         if self.save_transition_matrix_change:
             self.Fs[t//self.update_interval] = self.F
+
+
+    def _smooth(self, t):
+        """Calculate RTS smooth for times.
+
+        Args:
+            T : length of data y (時系列の長さ)
+            x_smooth [n_time, n_dim_sys] {numpy-array, float}
+                : mean of hidden state distributions for times
+                 [0...n_times-1] given all observations
+                時刻 t における状態変数の平滑化期待値 [時間軸，状態変数軸]
+            V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+                : covariances of hidden state distributions for times
+                 [0...n_times-1] given all observations
+                時刻 t における状態変数の平滑化共分散 [時間軸，状態変数軸，状態変数軸]
+            A [n_dim_sys, n_dim_sys] {numpy-array, float}
+                : fixed interval smoothed gain
+                固定区間平滑化ゲイン [時間軸，状態変数軸，状態変数軸]
+        """
+        x_smooth = self.xp.zeros((self.update_interval+1, self.n_dim_sys), dtype = self.dtype)
+        V_smooth = self.xp.zeros((self.update_interval+1, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        A = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+
+        x_smooth[-1] = self.x_filt[t]
+        V_smooth[-1] = self.V_filt[t]
+
+        # t in [0, T-2] (notice t range is reversed from 1~T)
+        for i,s in zip(reversed(range(self.update_interval)), reversed(range(t-self.update_interval, t))):
+            # extract parameters for time t
+            F = _last_dims(self.F, s, 2)
+
+            # calculate fixed interval smoothing gain
+            A = self.V_filt[s] @ F.T @ self.xp.linalg.pinv(self.V_pred[s + 1])
+            
+            # fixed interval smoothing
+            x_smooth[i] = self.x_filt[s] \
+                + A @ (x_smooth[i + 1] - self.x_pred[s + 1])
+            V_smooth[i] = self.V_filt[s] \
+                + A @ (V_smooth[i + 1] - self.V_pred[s + 1]) @ A.T
+
+            nP = self.xp.isnan(self.y[s])
+            self.y[s][nP] = x_smooth[i][nP]
+
+            if i==0:
+                self.y[s][self.bnP] = x_smooth[i][self.bnP]
+                self.bnP = self.xp.isnan(self.y[t])
+
+        self.y[t][self.bnP] = self.x_filt[t][self.bnP] # before not P
 
 
     def _update_transition_matrix_with_variance(self, t):
@@ -440,57 +470,6 @@ class SequentialUpdateKalmanFilter(object) :
         else:
             print("Need to be \"calculate_variance\" on.")
 
-
-    def smooth(self):
-        """Calculate RTS smooth for times.
-
-        Args:
-            T : length of data y (時系列の長さ)
-            x_smooth [n_time, n_dim_sys] {numpy-array, float}
-                : mean of hidden state distributions for times
-                 [0...n_times-1] given all observations
-                時刻 t における状態変数の平滑化期待値 [時間軸，状態変数軸]
-            V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
-                : covariances of hidden state distributions for times
-                 [0...n_times-1] given all observations
-                時刻 t における状態変数の平滑化共分散 [時間軸，状態変数軸，状態変数軸]
-            A [n_dim_sys, n_dim_sys] {numpy-array, float}
-                : fixed interval smoothed gain
-                固定区間平滑化ゲイン [時間軸，状態変数軸，状態変数軸]
-        """
-
-        # if not implement `filter`, implement `filter`
-        try :
-            self.x_pred[0]
-        except :
-            self.filter()
-
-        T = self.y.shape[0]
-        self.x_smooth = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
-        self.V_smooth = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
-             dtype = self.dtype)
-        A = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
-
-        self.x_smooth[-1] = self.x_filt[-1]
-        self.V_smooth[-1] = self.V_filt[-1]
-
-        # t in [0, T-2] (notice t range is reversed from 1~T)
-        for t in reversed(range(T - 1)) :
-            # visualize calculating times
-            print("\r smooth calculating... t={}".format(T - t)
-                 + "/" + str(T), end="")
-
-            # extract parameters for time t
-            F = _last_dims(self.F, t, 2)
-
-            # calculate fixed interval smoothing gain
-            A = self.xp.dot(self.V_filt[t], self.xp.dot(F.T, self.xp.linalg.pinv(self.V_pred[t + 1])))
-            
-            # fixed interval smoothing
-            self.x_smooth[t] = self.x_filt[t] \
-                + self.xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
-            self.V_smooth[t] = self.V_filt[t] \
-                + self.xp.dot(A, self.xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
 
             
     def get_smoothed_value(self, dim = None):

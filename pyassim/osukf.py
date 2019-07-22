@@ -15,7 +15,7 @@ from .util_functions import _parse_observations, _last_dims, \
     _determine_dimensionality
 
 
-class SequentialUpdateKalmanFilter(object) :
+class OffsetsSequentialUpdateKalmanFilter(object) :
     """Implements the Kalman Filter, Kalman Smoother, and EM algorithm.
     This class implements the Kalman Filter, Kalman Smoother, and EM Algorithm
     for a Linear Gaussian model specified by,
@@ -108,8 +108,9 @@ class SequentialUpdateKalmanFilter(object) :
                 initial_mean = None, initial_covariance = None,
                 transition_matrices = None, observation_matrices = None,
                 transition_covariance = None, observation_covariance = None,
+                transition_offsets = None, observation_offsets = None,
                 update_interval = 1, eta = 0.1, cutoff = 0.1, 
-                save_transition_matrix_change = True, calculate_variance = False,
+                save_transition_change = True, method = "at-same-time",
                 n_dim_sys = None, n_dim_obs = None, dtype = "float32",
                 xp = "numpy"):
         """Setup initial parameters.
@@ -123,6 +124,7 @@ class SequentialUpdateKalmanFilter(object) :
         # determine dimensionality
         self.n_dim_sys = _determine_dimensionality(
             [(transition_matrices, array2d, -2),
+             (transition_offsets, array1d, -1),
              (initial_mean, array1d, -1),
              (initial_covariance, array2d, -2),
              (observation_matrices, array2d, -1)],
@@ -131,7 +133,8 @@ class SequentialUpdateKalmanFilter(object) :
 
         self.n_dim_obs = _determine_dimensionality(
             [(observation_matrices, array2d, -2),
-             (observation_covariance, array2d, -2)],
+             (observation_covariance, array2d, -2),
+             (observation_offsets, array1d, -1)],
             n_dim_obs
         )
 
@@ -153,10 +156,15 @@ class SequentialUpdateKalmanFilter(object) :
         else:
             self.F = transition_matrices.astype(dtype)
 
-        if transition_covariance is not None:
-            self.Q = transition_covariance.astype(dtype)
-        else:
+        if transition_covariance is None:
             self.Q = self.xp.eye(self.n_dim_sys, dtype = dtype)
+        else:
+            self.Q = transition_covariance.astype(dtype)
+
+        if transition_offsets is None:
+            self.b = self.xp.zeros(self.n_dim_sys, dtype = dtype)
+        else:
+            self.b = transition_offsets.astype(dtype)
 
         if observation_matrices is None:
             self.H = self.xp.eye(self.n_dim_obs, self.n_dim_sys, dtype = dtype)
@@ -168,25 +176,36 @@ class SequentialUpdateKalmanFilter(object) :
         else:
             self.R = observation_covariance.astype(dtype)
 
-        self.update_interval = int(update_interval)
-
-        if calculate_variance:
-            self.calculate_variance = True
-            self.save_transition_matrix_change = True
+        if observation_offsets is None:
+            self.d = self.xp.zeros(self.n_dim_obs, dtype = dtype)
         else:
-            self.save_transition_matrix_change = save_transition_matrix_change
-            self.calculate_variance = False
+            self.d = observation_offsets.astype(dtype)
 
-        if save_transition_matrix_change:
-            self.Fs = self.xp.zeros((len(self.y-1)//self.update_interval+1,
-                                self.F.shape[0], self.F.shape[1]))
-            # self.Fs = self.xp.zeros((math.floor(len(self.y)/self.update_interval)+1,
-            #                     self.F.shape[0], self.F.shape[1]))
+        if method in ["leap-flog", "at-same-time"]:
+            self.method = method
+        else:
+            raise ValueError("Variable \"method\" needs to be selected from \"reap-flog\", "
+                + "or \"at-same-time\". However, your choice is {}".format(method))
+
+        self.update_interval = int(update_interval)
+        self.save_transition_change = save_transition_change
+
+        if save_transition_change:
+            if self.method=="leap-flog":
+                self.Fs = self.xp.zeros((math.floor(len(self.y)/(2*self.update_interval))+1,
+                                    self.F.shape[0], self.F.shape[1]))
+                self.bs = self.xp.zeros((math.floor(len(self.y)/(self.update_interval))//2+1,
+                                    len(self.b)))
+            elif self.method=="at-same-time":
+                self.Fs = self.xp.zeros(((len(self.y)-1)//self.update_interval+1,
+                                    self.F.shape[0], self.F.shape[1]))
+                self.bs = self.xp.zeros(((len(self.y)-1)//self.update_interval+1,
+                                    len(self.b)))
             self.Fs[0] = self.F
+            self.bs[0] = self.b
 
-            if calculate_variance:
-                self.FV = self.xp.zeros((len(self.y-1)//self.update_interval+1,
-                                self.F.shape[0], self.F.shape[1]))
+        self.G = self.xp.eye(self.n_dim_obs, dtype=dtype)
+        self.c = self.xp.zeros(self.n_dim_obs, dtype=dtype)
 
         self.eta = eta
         self.cutoff = cutoff
@@ -245,10 +264,14 @@ class SequentialUpdateKalmanFilter(object) :
             self._filter_update(t)
             # ToDo : if there exists nan, more consider this part
             if t>0 and t%self.update_interval==0:
-                if self.calculate_variance:
-                    self._update_transition_matrix_with_variance(t)
-                else:
+                if self.method == "leap-flog":
+                    if (t//self.update_interval)%2==0:
+                        self._update_transition_matrix(t)
+                    else:
+                        self._update_transition_offset(t)
+                elif self.method == "at-same-time":
                     self._update_transition_matrix(t)
+                    self._update_transition_offset(t)
 
 
     def _predict_update(self, t):
@@ -260,9 +283,10 @@ class SequentialUpdateKalmanFilter(object) :
         # extract parameters for time t-1
         F = _last_dims(self.F, t - 1, 2)
         Q = _last_dims(self.Q, t - 1, 2)
+        b = _last_dims(self.b, t - 1, 1)
 
         # calculate predicted distribution for time t
-        self.x_pred[t] = F @ self.x_filt[t-1]
+        self.x_pred[t] = F @ self.x_filt[t-1] + b
         self.V_pred[t] = F @ self.V_filt[t-1] @ F.T + Q
 
 
@@ -280,6 +304,7 @@ class SequentialUpdateKalmanFilter(object) :
         # extract parameters for time t
         H = _last_dims(self.H, t, 2)
         R = _last_dims(self.R, t, 2)
+        d = _last_dims(self.d, t, 1)
 
         # calculate filter step
         K = self.V_pred[t] @ (
@@ -288,7 +313,7 @@ class SequentialUpdateKalmanFilter(object) :
         target = self.xp.isnan(self.y[t])
         self.y[t][target] = (H @ self.x_pred[t])[target]
         self.x_filt[t] = self.x_pred[t] + K @ (
-            self.y[t] - (H @ self.x_pred[t])
+            self.y[t] - (H @ self.x_pred[t] + d)
             )
         self.y[t][target] = (H @ self.x_filt[t])[target]
         self.V_filt[t] = self.V_pred[t] - K @ (H @ self.V_pred[t])
@@ -300,59 +325,40 @@ class SequentialUpdateKalmanFilter(object) :
         Args:
             t {int} : observation time
         """
-        Hb = _last_dims(self.H, t-1, 2)
-        H  = _last_dims(self.H, t, 2)
-
-        # Fh = self.xp.linalg.pinv(Hb) @ self.y[t-min(self.n_dim_obs, self.update_interval)+1:t+1].T \
-        #         @ self.xp.linalg.pinv(self.y[t-min(self.n_dim_obs, self.update_interval):t].T) @ H
-        Fh = self.xp.linalg.pinv(H) @ self.y[t-self.update_interval+1:t+1].T \
-                @ self.xp.linalg.pinv(self.y[t-self.update_interval:t].T) @ Hb
+        self.G = (self.y[t-self.update_interval+1:t+1].T - self.c.reshape(-1,1)) \
+                @ self.xp.linalg.pinv(self.y[t-self.update_interval:t].T) 
+        Fh = self.xp.linalg.pinv(self.H) \
+                @ (self.G @ self.H \
+                    - self.xp.tile(self.H @ self.b - self.c, (self.update_interval, 1)).T \
+                        @ self.xp.linalg.pinv(self.x_filt[t-self.update_interval:t].T))
         # self.F = (1 - self.eta) * self.F + self.eta * Fh
         self.F = self.F - self.eta * self.xp.minimum(self.xp.maximum(-self.cutoff, self.F - Fh), self.cutoff)
 
-        if self.save_transition_matrix_change:
-            self.Fs[t//self.update_interval] = self.F
+        if self.save_transition_change:
+            if self.method == "leap-flog":
+                self.Fs[t//(2*self.update_interval)] = self.F
+            elif self.method == "at-same-time":
+                self.Fs[t//self.update_interval] = self.F
 
 
-    def _update_transition_matrix_with_variance(self, t):
-        """Update transition matrix with variance of transition matrix
+    def _update_transition_offset(self, t):
+        """Update transition offset
 
         Args:
             t {int} : observation time
         """
-        H  = _last_dims(self.H, t, 2)
-        R = _last_dims(self.R, t, 2)
-        Rb = _last_dims(self.R, t-1, 2)
+        C = self.y[t-self.update_interval+1:t+1].T - self.G @ self.y[t-self.update_interval:t].T
+        self.c = self.xp.mean(C, axis=1)
+        B = self.xp.linalg.pinv(self.H) @ ((self.G @ self.H - self.H @ self.F) \
+                                            @ self.x_filt[t-self.update_interval:t].T + C)
+        self.b = self.b - self.eta * self.xp.minimum(self.xp.maximum(-self.cutoff, 
+                                                    self.b - self.xp.mean(B, axis=1)), self.cutoff)
 
-        Gh = self.y[t-self.update_interval+1:t+1].T \
-                @ self.xp.linalg.pinv(self.y[t-self.update_interval:t].T) 
-        Fh = self.xp.linalg.pinv(H) @ Gh @ H
-        self.F = self.F - self.eta * self.xp.minimum(self.xp.maximum(-self.cutoff, self.F - Fh), self.cutoff)
-        self.Fs[t//self.update_interval] = self.F
-
-        # Calculate variance of observation transition
-        Sh = H @ self.V_pred[t] @ H.T + R - Gh @ (H @ self.V_filt[t-1] @ H.T + Rb) @ Gh.T
-
-        # Calculate variance of transition matrix
-        nu = self.xp.zeros(self.n_dim_sys * self.update_interval, dtype=self.dtype)
-        kappa = self.xp.zeros(self.n_dim_sys * self.update_interval, dtype=self.dtype)
-        X = self.xp.zeros((self.n_dim_sys * self.update_interval, self.n_dim_sys**2), dtype=self.dtype)
-
-        for i,s in enumerate(range(t-self.update_interval, t)):
-            Q = _last_dims(self.Q, s, 2)
-            R = _last_dims(self.R, s, 2)
-
-            X0 = self.xp.square(self.x_filt[s]) + self.xp.diag(self.V_filt[s])
-            for j in range(self.n_dim_sys):
-                X[self.n_dim_sys*i+j, self.n_dim_sys*j:self.n_dim_sys*(j+1)] = X0
-            nu0 = self.xp.diag(self.V_pred[s+1])
-            nu[self.n_dim_sys*i:self.n_dim_sys*(i+1)] = nu0
-            kappa0 = self.xp.diag(self.xp.linalg.pinv(H) @ (Gh @ (H @ self.V_filt[s] @ H.T) @ Gh.T \
-                        + Sh - R) @ self.xp.linalg.pinv(H.T) - Q)
-            kappa[self.n_dim_sys*i:self.n_dim_sys*(i+1)] = kappa0
-
-        self.FV[t//self.update_interval] = (self.xp.linalg.pinv(X) @ (kappa - nu))\
-                                            .reshape(self.n_dim_sys, self.n_dim_sys)
+        if self.save_transition_change:
+            if self.method == "leap-flog":
+                self.bs[t//(2*self.update_interval)+1] = self.b
+            elif self.method == "at-same-time":
+                self.bs[t//self.update_interval] = self.b
 
 
     def get_predicted_value(self, dim = None):
@@ -414,7 +420,7 @@ class SequentialUpdateKalmanFilter(object) :
         Returns {numpy-array, float}:
             : transition matrices
         """
-        if self.save_transition_matrix_change:
+        if self.save_transition_change:
             if ids is None:
                 return self.Fs
             else:
@@ -423,22 +429,22 @@ class SequentialUpdateKalmanFilter(object) :
             return self.F
 
 
-    def get_variance_of_transition_matrices(self, ids = None):
+    def get_transition_offsets(self, ids = None):
         """Get transition matrices
         
         Args:
             ids {numpy-array, int} : ids of transition matrices
 
         Returns {numpy-array, float}:
-            : transition matrices
+            : transition offsets
         """
-        if self.calculate_variance:
+        if self.save_transition_change:
             if ids is None:
-                return self.FV
+                return self.bs
             else:
-                return self.FV[ids]
+                return self.bs[ids]
         else:
-            print("Need to be \"calculate_variance\" on.")
+            return self.b
 
 
     def smooth(self):

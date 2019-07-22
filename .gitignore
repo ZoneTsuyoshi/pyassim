@@ -25,6 +25,8 @@ var/
 *.egg
 old_codes/
 private/
+notebooks/
+phase3/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

@@ -122,3 +122,15 @@ def _calc_transition_covariance(self, G, Q):
     else:
         raise ValueError('The ndim of transition_covariance should be 2 or 3,'
             + ' but your input is ' + str(Q.ndim) + '.')
+
+
+# calculate MSE
+def mean_squared_error(x, y):
+    assert x.shape == y.shape
+    return xp.sqrt(xp.sum(xp.square(x - y))) / x.size
+
+
+# calculate MAE
+def mean_absolute_error(x, y):
+    assert x.shape == y.shape
+    return xp.mean(xp.absolute(x - y))

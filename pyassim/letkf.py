@@ -87,7 +87,7 @@ def local_multi_processing(x_pred_mean_local, x_pred_center_local,
 
 
     ## Step9 : move analysis result to global analysis
-    # time x sys x particle
+    # sys x particle
     return analysis_system[len(np.where(A_sys[:i])[0])]
 
 

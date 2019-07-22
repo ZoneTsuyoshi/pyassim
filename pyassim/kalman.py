@@ -9,21 +9,11 @@ EM Algorithm for Linear-Gaussian state space models
 import math
 
 import numpy as np
-try:
-    import cupy
-    print("successfully import cupy at sukf.")
-    xp = cupy
-    from cupy import linalg
-    mask = False
-except:
-    xp = np
-    # from numpy import linalg
-    from scipy import linalg
-    mask = True
 
 from .utils import array1d, array2d
 from .util_functions import _parse_observations, _last_dims, \
     _determine_dimensionality
+# package では . をつける
 
 # Dimensionality of each Kalman Filter parameter for a single time step
 DIM = {
@@ -195,9 +185,15 @@ class KalmanFilter(object) :
                 observation_covariance_structure = 'all',
                 transition_vh_length = None,
                 observation_vh_length = None, 
-                n_dim_sys = None, n_dim_obs = None, dtype = xp.float32):
+                n_dim_sys = None, n_dim_obs = None, dtype = "float32",
+                use_gpu = False):
         """Setup initial parameters.
         """
+        if use_gpu:
+            import cupy
+            self.xp = cupy
+        else:
+            self.xp = np
 
         # determine dimensionality
         self.n_dim_sys = _determine_dimensionality(
@@ -224,30 +220,28 @@ class KalmanFilter(object) :
                     [(transition_covariance, array2d, -2)],
                     self.n_dim_sys
                 )
-            transition_noise_matrices = xp.eye(self.n_dim_noise, dtype = dtype)
+            transition_noise_matrices = self.xp.eye(self.n_dim_noise, dtype = dtype)
         else :
             self.n_dim_noise = _determine_dimensionality(
                     [(transition_noise_matrices, array2d, -1),
                      (transition_covariance, array2d, -2)]
                 )
 
-        if mask:
-            self.y = _parse_observations(observation)
-        else:
-            self.y = observation
+        # self.y = _parse_observations(observation)
+        self.y = observation.copy()
 
         if initial_mean is None:
-            self.initial_mean = xp.zeros(self.n_dim_sys, dtype = dtype)
+            self.initial_mean = self.xp.zeros(self.n_dim_sys, dtype = dtype)
         else:
             self.initial_mean = initial_mean.astype(dtype)
         
         if initial_covariance is None:
-            self.initial_covariance = xp.eye(self.n_dim_sys, dtype = dtype)
+            self.initial_covariance = self.xp.eye(self.n_dim_sys, dtype = dtype)
         else:
             self.initial_covariance = initial_covariance.astype(dtype)
 
         if transition_matrices is None:
-            self.F = xp.eye(self.n_dim_sys, dtype = dtype)
+            self.F = self.xp.eye(self.n_dim_sys, dtype = dtype)
         else:
             self.F = transition_matrices.astype(dtype)
 
@@ -260,25 +254,25 @@ class KalmanFilter(object) :
             else:
                 self.Q = transition_covariance.astype(dtype)
         else:
-            self.Q = xp.eye(self.n_dim_sys, dtype = dtype)
+            self.Q = self.xp.eye(self.n_dim_sys, dtype = dtype)
 
         if transition_offsets is None :
-            self.b = xp.zeros(self.n_dim_sys, dtype = dtype)
+            self.b = self.xp.zeros(self.n_dim_sys, dtype = dtype)
         else :
             self.b = transition_offsets.astype(dtype)
 
         if observation_matrices is None:
-            self.H = xp.eye(self.n_dim_obs, self.n_dim_sys, dtype = dtype)
+            self.H = self.xp.eye(self.n_dim_obs, self.n_dim_sys, dtype = dtype)
         else:
             self.H = observation_matrices.astype(dtype)
         
         if observation_covariance is None:
-            self.R = xp.eye(self.n_dim_obs, dtype = dtype)
+            self.R = self.xp.eye(self.n_dim_obs, dtype = dtype)
         else:
             self.R = observation_covariance.astype(dtype)
 
         if observation_offsets is None :
-            self.d = xp.zeros(self.n_dim_obs, dtype = dtype)
+            self.d = self.xp.zeros(self.n_dim_obs, dtype = dtype)
         else :
             self.d = observation_offsets.astype(dtype)
 
@@ -291,7 +285,7 @@ class KalmanFilter(object) :
         self.em_vars = em_vars
         if transition_covariance_structure == 'triD2':
             if transition_vh_length is None:
-                raise ValueError('you should ixput transition_vh_length.')
+                raise ValueError('you should iself.xput transition_vh_length.')
             elif transition_vh_length[0] * transition_vh_length[1] != self.n_dim_sys:
                 raise ValueError('you should confirm transition_vh_length.')
             else:
@@ -304,7 +298,7 @@ class KalmanFilter(object) :
 
         if observation_covariance_structure == 'triD2':
             if observation_vh_length is None:
-                raise ValueError('you should ixput observation_vh_length.')
+                raise ValueError('you should iself.xput observation_vh_length.')
             elif observation_vh_length[0]*observation_vh_length[1] != self.n_dim_obs:
                 raise ValueError('you should confirm observation_vh_length.')
             else:
@@ -345,13 +339,13 @@ class KalmanFilter(object) :
         """
 
         T = self.y.shape[0]
-        self.x_pred = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
-        self.V_pred = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+        self.x_pred = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_pred = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
-        self.x_filt = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
-        self.V_filt = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+        self.x_filt = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_filt = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
-        K = xp.zeros((self.n_dim_sys, self.n_dim_obs), dtype = self.dtype)
+        K = self.xp.zeros((self.n_dim_sys, self.n_dim_obs), dtype = self.dtype)
 
         # calculate prediction and filter for every time
         for t in range(T) :
@@ -366,7 +360,8 @@ class KalmanFilter(object) :
                 self.predict_update(t)
             
             # If y[t] has any mask, skip filter calculation
-            if (mask and xp.any(xp.ma.getmask(self.y[t]))) or ((not mask) and xp.any(xp.isnan(self.y[t]))) :
+            # if (mask and self.xp.any(self.xp.ma.getmask(self.y[t]))) or ((not mask) and self.xp.any(self.xp.isnan(self.y[t]))) :
+            if self.xp.any(self.xp.isnan(self.y[t])):
                 self.x_filt[t] = self.x_pred[t]
                 self.V_filt[t] = self.V_pred[t]
             else :
@@ -377,7 +372,7 @@ class KalmanFilter(object) :
 
                 # calculate filter step
                 K = self.V_pred[t] @ (
-                    H.T @ linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
+                    H.T @ self.xp.linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
                     )
                 self.x_filt[t] = self.x_pred[t] + K @ (
                     self.y[t] - (H @ self.x_pred[t] + d)
@@ -407,7 +402,7 @@ class KalmanFilter(object) :
         Args:
             t {int} : observation time
         """
-        if xp.any(xp.ma.getmask(self.y[t-1])) :
+        if self.xp.any(self.xp.ma.getmask(self.y[t-1])) :
             self._predict_update_no_noise(t)
         else:
             # extract parameters for time t-1
@@ -420,7 +415,7 @@ class KalmanFilter(object) :
             R = _last_dims(self.R, t - 1, 2)
 
             # calculate predicted distribution for time t
-            SR = S @ linalg.pinv(R)
+            SR = S @ self.xp.linalg.pinv(R)
             F_SRH = F - SR @ H
             self.x_pred[t] = F_SRH @ self.x_filt[t-1] + b + SR @ (self.y[t-1] - d)
             self.V_pred[t] = F_SRH @ self.V_filt[t-1] @ F_SRH.T + Q - SR @ S.T
@@ -498,13 +493,13 @@ class KalmanFilter(object) :
         try :
             self.x_pred[0]
         except :
-            self.filter()
+            self.forward()
 
         T = self.y.shape[0]
-        self.x_smooth = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
-        self.V_smooth = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+        self.x_smooth = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_smooth = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
-        A = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+        A = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
 
         self.x_smooth[-1] = self.x_filt[-1]
         self.V_smooth[-1] = self.V_filt[-1]
@@ -519,13 +514,13 @@ class KalmanFilter(object) :
             F = _last_dims(self.F, t, 2)
 
             # calculate fixed interval smoothing gain
-            A = xp.dot(self.V_filt[t], xp.dot(F.T, linalg.pinv(self.V_pred[t + 1])))
+            A = self.xp.dot(self.V_filt[t], self.xp.dot(F.T, self.xp.linalg.pinv(self.V_pred[t + 1])))
             
             # fixed interval smoothing
             self.x_smooth[t] = self.x_filt[t] \
-                + xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
+                + self.xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
             self.V_smooth[t] = self.V_filt[t] \
-                + xp.dot(A, xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
+                + self.xp.dot(A, self.xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
 
             
     def get_smoothed_value(self, dim = None):
@@ -553,7 +548,7 @@ class KalmanFilter(object) :
                  + self.x_smooth.shape[1] + '.')
 
 
-    def em(self, n_iter = 10, em_vars = None):
+    def em(self, n_iter = 10, em_vars = None, save_name = None, save_states = [], save_em_vars = []):
         """Apply the EM algorithm to estimate all parameters specified by `em_vars`.
 
         Args:
@@ -570,6 +565,37 @@ class KalmanFilter(object) :
         # em_vars が入力されなかったらクラス作成時に入力した em_vars を使用
         if em_vars is None:
             em_vars = self.em_vars
+
+        if save_name is None:
+            save_on = False
+        else:
+            save_on = True
+            zfill_num = len(str(n_iter))
+            variable_dict = {'transition_matrices': self.F,
+                            'observation_matrices': self.H,
+                            'transition_offsets': self.b,
+                            'observation_offsets': self.d,
+                            'transition_covariance': self.Q,
+                            'observation_covariance': self.R,
+                            'initial_mean': self.initial_mean,
+                            'initial_covariance': self.initial_covariance}
+
+            if em_vars == "all":
+                variables = ['transition_matrices',
+                            'observation_matrices',
+                            'transition_offsets',
+                            'observation_offsets',
+                            'transition_covariance',
+                            'observation_covariance',
+                            'initial_mean',
+                            'initial_covariance']
+            else:
+                variables = em_vars.copy()
+
+            for variable in variables:
+                if variable in save_em_vars:
+                    self.xp.save(save_name + variable + "0".zfill(zfill_num) + ".npy", variable_dict[variable])
+
 
         if em_vars == 'all':
             # if `all`, not given known parameters
@@ -596,13 +622,34 @@ class KalmanFilter(object) :
             print("EM calculating... i={}".format(i+1) + "/" + str(n_iter), end="")
 
             # Expectation step
-            self.filter()
+            self.forward()
             
             # system covariance transition between time t and t-1
             self._sigma_pair_smooth()
 
             # Maximumization step
             self._calc_em(given = given)
+
+            if save_on:
+                variable_dict = {'transition_matrices': self.F,
+                            'observation_matrices': self.H,
+                            'transition_offsets': self.b,
+                            'observation_offsets': self.d,
+                            'transition_covariance': self.Q,
+                            'observation_covariance': self.R,
+                            'initial_mean': self.initial_mean,
+                            'initial_covariance': self.initial_covariance}
+                            
+                for variable in variables:
+                    if variable in save_em_vars:
+                        self.xp.save(save_name + variable + str(i+1).zfill(zfill_num) + ".npy", variable_dict[variable])
+
+                if "predicted" in save_states:
+                    self.xp.save(save_name + "predicted" + str(i).zfill(zfill_num) + ".npy", self.x_pred)
+                if "filtered" in save_states:
+                    self.xp.save(save_name + "filtered" + str(i).zfill(zfill_num) + ".npy", self.x_filt)
+                if "smoothed" in save_states:
+                    self.xp.save(save_name + "smoothed" + str(i).zfill(zfill_num) + ".npy", self.x_smooth)
         return self
 
 
@@ -626,12 +673,12 @@ class KalmanFilter(object) :
             GT = G.transpose(0,2,1)
         else:
             raise ValueError('The ndim of transition_noise_matrices'
-                + ' should be 2 or 3,' + ' but your ixput is ' + str(G.ndim) + '.')
+                + ' should be 2 or 3,' + ' but your iself.xput is ' + str(G.ndim) + '.')
         if Q.ndim == 2 or Q.ndim == 3:
-            return xp.matmul(G, xp.matmul(Q, GT))
+            return self.xp.matmul(G, self.xp.matmul(Q, GT))
         else:
             raise ValueError('The ndim of transition_covariance should be 2 or 3,'
-                + ' but your ixput is ' + str(Q.ndim) + '.')
+                + ' but your iself.xput is ' + str(Q.ndim) + '.')
 
 
     # sigma pair smooth 計算
@@ -648,14 +695,14 @@ class KalmanFilter(object) :
         """
 
         T = self.y.shape[0]
-        self.x_smooth = xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
-        self.V_smooth = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+        self.x_smooth = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_smooth = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
 
         # pairwise covariance
-        self.V_pair = xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+        self.V_pair = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
-        A = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+        A = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
 
         self.x_smooth[-1] = self.x_filt[-1]
         self.V_smooth[-1] = self.V_filt[-1]
@@ -663,23 +710,23 @@ class KalmanFilter(object) :
         # t in [0, T-2]
         for t in reversed(range(T - 1)) :
             # visualize calculating time
-            print("\r expectation step calculating... t={}".format(T - t)
+            print("\r eself.xpectation step calculating... t={}".format(T - t)
                  + "/" + str(T), end="")
 
             # extract parameters at time t
             F = _last_dims(self.F, t, 2)
 
             # calculate fixed interval smoothing gain
-            A = xp.dot(self.V_filt[t], xp.dot(F.T, linalg.pinv(self.V_pred[t + 1])))
+            A = self.xp.dot(self.V_filt[t], self.xp.dot(F.T, self.xp.linalg.pinv(self.V_pred[t + 1])))
             
             # fixed interval smoothing
             self.x_smooth[t] = self.x_filt[t] \
-                + xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
+                + self.xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
             self.V_smooth[t] = self.V_filt[t] \
-                + xp.dot(A, xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
+                + self.xp.dot(A, self.xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
 
             # calculate pairwise covariance
-            self.V_pair[t + 1] = xp.dot(self.V_smooth[t], A.T)
+            self.V_pair[t + 1] = self.xp.dot(self.V_smooth[t + 1], A.T) # self.V_smooth[t]
 
 
     def _calc_em(self, given = {}):
@@ -701,18 +748,18 @@ class KalmanFilter(object) :
             H &= ( \sum_{t=0}^{T-1} (y_t - d_t) \mathbb{E}[x_t]^T )
              ( \sum_{t=0}^{T-1} \mathbb{E}[x_t x_t^T] )^-1
             """
-            res1 = xp.zeros((self.n_dim_obs, self.n_dim_sys), dtype = self.dtype)
-            res2 = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+            res1 = self.xp.zeros((self.n_dim_obs, self.n_dim_sys), dtype = self.dtype)
+            res2 = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
 
             for t in range(T):
-                if not xp.any(xp.ma.getmask(self.y[t])):
+                if not self.xp.any(self.xp.ma.getmask(self.y[t])):
                     d = _last_dims(self.d, t, 1)
-                    res1 += xp.outer(self.y[t] - d, self.x_smooth[t])
+                    res1 += self.xp.outer(self.y[t] - d, self.x_smooth[t])
                     res2 += self.V_smooth[t] \
-                        + xp.outer(self.x_smooth[t], self.x_smooth[t])
+                        + self.xp.outer(self.x_smooth[t], self.x_smooth[t])
 
             # update `observation_matrices` or `H`
-            self.H = xp.dot(res1, linalg.pinv(res2))
+            self.H = self.xp.dot(res1, self.xp.linalg.pinv(res2))
 
 
         # update `observation_covariance`
@@ -730,11 +777,11 @@ class KalmanFilter(object) :
             # y : n_time x n_obs, d : n_obs
             # H : n_obs x n_sys, x_smooth : n_time x n_sys
             # err : n_time x n_obs
-            boolm = ~xp.any(self.y.mask, axis=1)
+            boolm = ~self.xp.any(self.y.mask, axis=1)
             err = self.y[boolm] - (self.H @ self.x_smooth[boolm].T).T \
                  - self.d.reshape(1,len(self.d))
             res1 = err.T @ err + self.H @ self.V_smooth[boolm].sum(axis=0) @ self.H.T
-            n_obs = boolm.astype(xp.int).sum()
+            n_obs = boolm.astype(self.xp.int).sum()
 
             if n_obs > 0:
                 self.R = (1.0 / n_obs) * res1
@@ -744,35 +791,35 @@ class KalmanFilter(object) :
             # divided about `covariance_structure`
             if self.observation_cs == 'triD1':
                 # definite new `R`
-                new_R = xp.zeros_like(self.R, dtype=self.dtype)
+                new_R = self.xp.zeros_like(self.R, dtype=self.dtype)
 
                 # average diagonal elements
-                xp.fill_diagonal(new_R, self.R.diagonal().mean())
+                self.xp.fill_diagonal(new_R, self.R.diagonal().mean())
 
                 # average tridiagonal elements
                 rho = (self.R.diagonal(1).mean() + self.R.diagonal(-1).mean()) / 2
 
                 # unify results
-                self.R = new_R + xp.diag(rho * xp.ones(self.n_dim_obs - 1), 1) \
-                     + xp.diag(rho * xp.ones(self.n_dim_obs - 1), -1)
+                self.R = new_R + self.xp.diag(rho * self.xp.ones(self.n_dim_obs - 1), 1) \
+                     + self.xp.diag(rho * self.xp.ones(self.n_dim_obs - 1), -1)
             elif self.observation_cs == 'triD2':
                 # definite new `R`
-                new_R = xp.zeros_like(self.R, dtype=self.dtype)
+                new_R = self.xp.zeros_like(self.R, dtype=self.dtype)
 
                 # average diagonal elements
-                xp.fill_diagonal(new_R, self.R.diagonal().mean())
+                self.xp.fill_diagonal(new_R, self.R.diagonal().mean())
 
                 # average tridiagonal and adjacency elements
                 start_time = time.time()
-                td = xp.ones(self.n_dim_obs - 1)
+                td = self.xp.ones(self.n_dim_obs - 1)
                 td[self.observation_v-1::self.observation_v-1] = 0
-                condition = xp.diag(td, 1) + xp.diag(td, -1) \
-                    + xp.diag(
-                        xp.ones(self.n_dim_obs - self.observation_v),
+                condition = self.xp.diag(td, 1) + self.xp.diag(td, -1) \
+                    + self.xp.diag(
+                        self.xp.ones(self.n_dim_obs - self.observation_v),
                         self.observation_v
                         ) \
-                    + xp.diag(
-                        xp.ones(self.n_dim_obs - self.observation_v),
+                    + self.xp.diag(
+                        self.xp.ones(self.n_dim_obs - self.observation_v),
                         self.observation_v
                         )
                 rho = self.R[condition.astype(bool)].mean()
@@ -791,18 +838,18 @@ class KalmanFilter(object) :
                 - b_{t-1} \mathbb{E}[x_{t-1}]^T )
              ( \sum_{t=1}^{T-1} \mathbb{E}[x_{t-1} x_{t-1}^T] )^{-1}
             """
-            res1 = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
-            res2 = xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+            res1 = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+            res2 = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
             for t in range(1, T):
                 b = _last_dims(self.b, t - 1, 1)
-                res1 += self.V_pair[t] + xp.outer(
+                res1 += self.V_pair[t] + self.xp.outer(
                     self.x_smooth[t], self.x_smooth[t - 1]
                     )
-                res1 -= xp.outer(b, self.x_smooth[t - 1])            
+                res1 -= self.xp.outer(b, self.x_smooth[t - 1])            
                 res2 += self.V_smooth[t - 1] \
-                    + xp.outer(self.x_smooth[t - 1], self.x_smooth[t - 1])
+                    + self.xp.outer(self.x_smooth[t - 1], self.x_smooth[t - 1])
 
-            self.F = xp.dot(res1, linalg.pinv(res2))
+            self.F = self.xp.dot(res1, self.xp.linalg.pinv(res2))
 
 
         # update `transition_covariance`
@@ -834,34 +881,34 @@ class KalmanFilter(object) :
             # devided about `covariance_structure`
             if self.transition_cs == 'triD1':
                 # definite new `Q`
-                new_Q = xp.zeros_like(self.Q, dtype=self.dtype)
+                new_Q = self.xp.zeros_like(self.Q, dtype=self.dtype)
 
                 # average diagonal elements
-                xp.fill_diagonal(new_Q, self.Q.diagonal().mean())
+                self.xp.fill_diagonal(new_Q, self.Q.diagonal().mean())
 
                 # average tridiagonal elements
                 rho = (self.Q.diagonal(1).mean() + self.Q.diagonal(-1).mean()) / 2
 
                 # unify results
-                self.Q = new_Q + xp.diag(rho * xp.ones(self.n_dim_sys - 1), 1)\
-                     + xp.diag(rho * xp.ones(self.n_dim_sys - 1), -1)
+                self.Q = new_Q + self.xp.diag(rho * self.xp.ones(self.n_dim_sys - 1), 1)\
+                     + self.xp.diag(rho * self.xp.ones(self.n_dim_sys - 1), -1)
             elif self.transition_cs == 'triD2':
                 # definite new `R`
-                new_Q = xp.zeros_like(self.Q, dtype=self.dtype)
+                new_Q = self.xp.zeros_like(self.Q, dtype=self.dtype)
 
                 # average diagonal elements
-                xp.fill_diagonal(new_Q, self.Q.diagonal().mean())
+                self.xp.fill_diagonal(new_Q, self.Q.diagonal().mean())
 
                 # average tridiagonal and adjacency elements
-                td = xp.ones(self.n_dim_sys - 1)
+                td = self.xp.ones(self.n_dim_sys - 1)
                 td[self.transition_v-1::self.transition_v-1] = 0
-                condition = xp.diag(td, 1) + xp.diag(td, -1) \
-                    + xp.diag(
-                        xp.ones(self.n_dim_sys - self.transition_v),
+                condition = self.xp.diag(td, 1) + self.xp.diag(td, -1) \
+                    + self.xp.diag(
+                        self.xp.ones(self.n_dim_sys - self.transition_v),
                         self.transition_v
                         ) \
-                    + xp.diag(
-                        xp.ones(self.n_dim_sys - self.transition_v),
+                    + self.xp.diag(
+                        self.xp.ones(self.n_dim_sys - self.transition_v),
                         self.transition_v
                         )
                 rho = self.Q[condition.astype(bool)].mean()
@@ -886,11 +933,11 @@ class KalmanFilter(object) :
                 \Sigma_0 = \mathbb{E}[x_0, x_0^T] - \mu_0 \mu_0^T
             """
             x0 = self.x_smooth[0]
-            x0_x0 = self.V_smooth[0] + xp.outer(x0, x0)
+            x0_x0 = self.V_smooth[0] + self.xp.outer(x0, x0)
 
-            self.initial_covariance = x0_x0 - xp.outer(self.initial_mean, x0)
-            self.initial_covariance += - xp.outer(x0, self.initial_mean)\
-                 + xp.outer(self.initial_mean, self.initial_mean)
+            self.initial_covariance = x0_x0 - self.xp.outer(self.initial_mean, x0)
+            self.initial_covariance += - self.xp.outer(x0, self.initial_mean)\
+                 + self.xp.outer(self.initial_mean, self.initial_mean)
 
 
         # update `transition_offsets`
@@ -901,12 +948,12 @@ class KalmanFilter(object) :
                 b = \frac{1}{T-1} \sum_{t=1}^{T-1}
                         \mathbb{E}[x_t] - F_{t-1} \mathbb{E}[x_{t-1}]
             """
-            self.b = xp.zeros(self.n_dim_sys, dtype = self.dtype)
+            self.b = self.xp.zeros(self.n_dim_sys, dtype = self.dtype)
 
             if T > 1:
                 for t in range(1, T):
                     F = _last_dims(self.F, t - 1)
-                    self.b += self.x_smooth[t] - xp.dot(F, self.x_smooth[t - 1])
+                    self.b += self.x_smooth[t] - self.xp.dot(F, self.x_smooth[t - 1])
                 self.b *= (1.0 / (T - 1))
 
 
@@ -917,12 +964,12 @@ class KalmanFilter(object) :
             H_t : observation_matrices, x_t : system
                 d = \frac{1}{T} \sum_{t=0}^{T-1} y_t - H_{t} \mathbb{E}[x_{t}]
             """
-            self.d = xp.zeros(self.n_dim_obs, dtype = self.dtype)
+            self.d = self.xp.zeros(self.n_dim_obs, dtype = self.dtype)
             n_obs = 0
             for t in range(T):
-                if not xp.any(xp.ma.getmask(self.y[t])):
+                if not self.xp.any(self.xp.ma.getmask(self.y[t])):
                     H = _last_dims(self.H, t)
-                    self.d += self.y[t] - xp.dot(H, self.x_smooth[t])
+                    self.d += self.y[t] - self.xp.dot(H, self.x_smooth[t])
                     n_obs += 1
             if n_obs > 0:
                 self.d *= (1.0 / n_obs)

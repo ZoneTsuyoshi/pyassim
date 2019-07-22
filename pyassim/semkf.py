@@ -1,8 +1,8 @@
 """
 =============================
-Inference with Sequential Update Kalman Filter
+Inference with Sequential Expectation Maximization Kalman Filter
 =============================
-This module implements the Sequential Update Kalman Filter
+This module implements the Sequential Expectation Maximization Kalman Filter
 and Kalman Smoother for Linear-Gaussian state space models
 """
 
@@ -15,14 +15,14 @@ from .util_functions import _parse_observations, _last_dims, \
     _determine_dimensionality
 
 
-class SequentialUpdateKalmanFilter(object) :
+class SequentialExpectationMaximizationKalmanFilter(object) :
     """Implements the Kalman Filter, Kalman Smoother, and EM algorithm.
-    This class implements the Kalman Filter, Kalman Smoother, and EM Algorithm
+    This class implements the sequential expectation maximization Kalman filter
     for a Linear Gaussian model specified by,
     .. math::
         x_{t+1}   &= F_{t} x_{t} + b_{t} + v_{t} \\
         y_{t}     &= H_{t} x_{t} + d_{t} + w_{t} \\
-        [v_{t}, w_{t}]^T &\sim N(0, [[Q_{t}, O], [O, R_{t}]])
+        [v_{t}, w_{t}] &\sim N(0, [[Q_{t}, O], [O, R_{t}]])
     The Kalman Filter is an algorithm designed to estimate
     :math:`P(x_t | y_{0:t})`.  As all state transitions and observations are
     linear with Gaussian distributed noise, these distributions can be
@@ -61,6 +61,12 @@ class SequentialUpdateKalmanFilter(object) :
             : interval of update transition matrix F
         eta (in (0.1))
             : update rate for transition matrix F
+        em_vars {list, string}
+            variable name list for EM algorithm. subset of ['transition_matrices', \
+            'observation_matrices', 'transition_offsets', 'observation_offsets', \
+            'transition_covariance', 'observation_covariance', 'initial_mean', \
+            'initial_covariance']
+            EMアルゴリズムで最適化する変数リスト
         n_dim_sys {int}
             : dimension of system transition variable
             システム変数の次元
@@ -108,8 +114,11 @@ class SequentialUpdateKalmanFilter(object) :
                 initial_mean = None, initial_covariance = None,
                 transition_matrices = None, observation_matrices = None,
                 transition_covariance = None, observation_covariance = None,
-                update_interval = 1, eta = 0.1, cutoff = 0.1, 
-                save_transition_matrix_change = True, calculate_variance = False,
+                transition_offsets = None, observation_offsets = None,
+                update_interval = 1, eta = 0.1, cutoff = 0.1, etab = 0.1, cutoffb=0.1,
+                iteration = 1,
+                save_transition_matrix_change = True,
+                em_vars = ["F"],
                 n_dim_sys = None, n_dim_obs = None, dtype = "float32",
                 xp = "numpy"):
         """Setup initial parameters.
@@ -136,7 +145,7 @@ class SequentialUpdateKalmanFilter(object) :
         )
 
         # self.y = _parse_observations(observation)
-        self.y = self.xp.asarray(observation).copy()
+        self.y = self.xp.asarray(observation)
 
         if initial_mean is None:
             self.initial_mean = self.xp.zeros(self.n_dim_sys, dtype = dtype)
@@ -168,28 +177,35 @@ class SequentialUpdateKalmanFilter(object) :
         else:
             self.R = observation_covariance.astype(dtype)
 
-        self.update_interval = int(update_interval)
+        if transition_offsets is None :
+            self.b = self.xp.zeros(self.n_dim_sys, dtype = dtype)
+        else :
+            self.b = transition_offsets.astype(dtype)
 
-        if calculate_variance:
-            self.calculate_variance = True
-            self.save_transition_matrix_change = True
-        else:
-            self.save_transition_matrix_change = save_transition_matrix_change
-            self.calculate_variance = False
+        if observation_offsets is None :
+            self.d = self.xp.zeros(self.n_dim_obs, dtype = dtype)
+        else :
+            self.d = observation_offsets.astype(dtype)
+
+        self.tau = int(update_interval)
+        self.save_transition_matrix_change = save_transition_matrix_change
 
         if save_transition_matrix_change:
-            self.Fs = self.xp.zeros((len(self.y-1)//self.update_interval+1,
+            self.Fs = self.xp.zeros((math.floor(len(self.y)/self.tau)+1,
                                 self.F.shape[0], self.F.shape[1]))
-            # self.Fs = self.xp.zeros((math.floor(len(self.y)/self.update_interval)+1,
-            #                     self.F.shape[0], self.F.shape[1]))
             self.Fs[0] = self.F
 
-            if calculate_variance:
-                self.FV = self.xp.zeros((len(self.y-1)//self.update_interval+1,
-                                self.F.shape[0], self.F.shape[1]))
+        self.em_vars = []
+        if "F" in em_vars or "transition_matrices" in em_vars:
+            self.em_vars.append("F")
+        if "b" in em_vars or "transition_offsets" in em_vars:
+            self.em_vars.append("b")
 
+        self.iteration = iteration
         self.eta = eta
         self.cutoff = cutoff
+        self.etab = etab
+        self.cutoffb = cutoffb
         self.dtype = dtype
 
 
@@ -214,6 +230,18 @@ class SequentialUpdateKalmanFilter(object) :
                 : covariance of hidden state at time t given observations
                  from times [0...t]
                 時刻 t における状態変数のフィルタ共分散 [時間軸，状態変数軸，状態変数軸]
+            x_smooth [n_time, n_dim_sys] {numpy-array, float}
+                : mean of hidden state distributions for times
+                 [0...n_times-1] given all observations
+                時刻 t における状態変数の平滑化期待値 [時間軸，状態変数軸]
+            V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+                : covariances of hidden state distributions for times
+                 [0...n_times-1] given all observations
+                時刻 t における状態変数の平滑化共分散 [時間軸，状態変数軸，状態変数軸]
+            V_pair [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
+                : Covariance between hidden states at times t and t-1
+                 for t = [1...n_timesteps-1].  Time 0 is ignored.
+                時刻t,t-1間の状態の共分散．0は無視する
         """
 
         T = self.y.shape[0]
@@ -223,32 +251,39 @@ class SequentialUpdateKalmanFilter(object) :
         self.x_filt = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
         self.V_filt = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
+        self.x_smooth = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_smooth = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        self.V_pair = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
 
         # calculate prediction and filter for every time
-        for t in range(T) :
-            # visualize calculating time
-            print("\r filter calculating... t={}".format(t) + "/" + str(T), end="")
+        # for t in range(T):
+        for s in range(0,T,self.tau):
+            for n in range(self.iteration):
+                for t in range(s,min(s+self.tau, T)):
+                    # visualize calculating time
+                    print("\r filter calculating... t={}".format(t) + "/" + str(T), end="")
 
-            if t == 0:
-                # initial setting
-                self.x_pred[0] = self.initial_mean
-                self.V_pred[0] = self.initial_covariance
-            else:
-                self._predict_update(t)
-            
-            # If y[t] has any mask, skip filter calculation
-            # if self.xp.any(self.xp.ma.getmask(self.y[t])) :
-            # if self.xp.any(self.xp.isnan(self.y[t])) :
-            #     self.x_filt[t] = self.x_pred[t]
-            #     self.V_filt[t] = self.V_pred[t]
-            # else :
-            self._filter_update(t)
-            # ToDo : if there exists nan, more consider this part
-            if t>0 and t%self.update_interval==0:
-                if self.calculate_variance:
-                    self._update_transition_matrix_with_variance(t)
-                else:
-                    self._update_transition_matrix(t)
+                    if t == 0:
+                        # initial setting
+                        self.x_pred[0] = self.initial_mean
+                        self.V_pred[0] = self.initial_covariance
+                    elif n > 0 and t%self.tau==0:
+                        self.x_pred[t] = self.x_smooth[t]
+                        self.V_pred[t] = self.V_smooth[t]
+                    else:
+                        self._predict_update(t)
+                    
+                    # If y[t] has any mask, skip filter calculation
+                    if self.xp.any(self.xp.isnan(self.y[t])) :
+                        self.x_filt[t] = self.x_pred[t]
+                        self.V_filt[t] = self.V_pred[t]
+                    else :
+                        self._filter_update(t)
+                        # ToDo : if there exists nan, more consider this part
+                        if (t+1)%self.tau==0:
+                            self._update_transition_matrix(t)
 
 
     def _predict_update(self, t):
@@ -260,9 +295,10 @@ class SequentialUpdateKalmanFilter(object) :
         # extract parameters for time t-1
         F = _last_dims(self.F, t - 1, 2)
         Q = _last_dims(self.Q, t - 1, 2)
+        b = _last_dims(self.b, t - 1, 1)
 
         # calculate predicted distribution for time t
-        self.x_pred[t] = F @ self.x_filt[t-1]
+        self.x_pred[t] = F @ self.x_filt[t-1] + b
         self.V_pred[t] = F @ self.V_filt[t-1] @ F.T + Q
 
 
@@ -280,79 +316,96 @@ class SequentialUpdateKalmanFilter(object) :
         # extract parameters for time t
         H = _last_dims(self.H, t, 2)
         R = _last_dims(self.R, t, 2)
+        d = _last_dims(self.d, t, 1)
 
         # calculate filter step
         K = self.V_pred[t] @ (
             H.T @ self.xp.linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
             )
-        target = self.xp.isnan(self.y[t])
-        self.y[t][target] = (H @ self.x_pred[t])[target]
         self.x_filt[t] = self.x_pred[t] + K @ (
-            self.y[t] - (H @ self.x_pred[t])
+            self.y[t] - (H @ self.x_pred[t] + d)
             )
-        self.y[t][target] = (H @ self.x_filt[t])[target]
         self.V_filt[t] = self.V_pred[t] - K @ (H @ self.V_pred[t])
 
 
-    def _update_transition_matrix(self, t):
-        """Update transition matrix
+    def _update_transition_matrix(self, s):
+        """Calculate estimation of state transition matrix by maximization of likelihood.
 
         Args:
-            t {int} : observation time
+            s {int} : last time for fixed-interval smoothing
         """
-        Hb = _last_dims(self.H, t-1, 2)
-        H  = _last_dims(self.H, t, 2)
+        self._backward(s)
 
-        # Fh = self.xp.linalg.pinv(Hb) @ self.y[t-min(self.n_dim_obs, self.update_interval)+1:t+1].T \
-        #         @ self.xp.linalg.pinv(self.y[t-min(self.n_dim_obs, self.update_interval):t].T) @ H
-        Fh = self.xp.linalg.pinv(H) @ self.y[t-self.update_interval+1:t+1].T \
-                @ self.xp.linalg.pinv(self.y[t-self.update_interval:t].T) @ Hb
-        # self.F = (1 - self.eta) * self.F + self.eta * Fh
-        self.F = self.F - self.eta * self.xp.minimum(self.xp.maximum(-self.cutoff, self.F - Fh), self.cutoff)
+        if "F" in self.em_vars:
+            res1 = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+            res2 = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
+            for t in range(s-self.tau+1, s):
+                b = _last_dims(self.b, t - 1, 1)
+                res1 += self.V_pair[t] + self.xp.outer(
+                    self.x_smooth[t], self.x_smooth[t - 1]
+                    )
+                res1 -= self.xp.outer(b, self.x_smooth[t - 1])            
+                res2 += self.V_smooth[t - 1] \
+                    + self.xp.outer(self.x_smooth[t - 1], self.x_smooth[t - 1])
 
-        if self.save_transition_matrix_change:
-            self.Fs[t//self.update_interval] = self.F
+            F_est = res1 @ self.xp.linalg.pinv(res2)
+
+            # update transition matrix
+            self.F = self.F - self.eta * self.xp.minimum(self.xp.maximum(-self.cutoff, self.F - F_est),
+                                                        self.cutoff)
+            if self.save_transition_matrix_change:
+                self.Fs[s//self.tau+1] = self.F
+
+        if "b" in self.em_vars and self.tau > 1:
+            b_est = self.xp.zeros(self.n_dim_sys, dtype = self.dtype)
+
+            for t in range(s-self.tau+1, s):
+                F = _last_dims(self.F, t - 1)
+                b_est += self.x_smooth[t] - F @ self.x_smooth[t - 1]
+            b_est *= (1.0 / (self.tau - 1))
+
+            # update transition offset
+            self.b = self.b - self.etab * self.xp.minimum(self.xp.maximum(-self.cutoffb, self.b - b_est),
+                                                        self.cutoffb)
 
 
-    def _update_transition_matrix_with_variance(self, t):
-        """Update transition matrix with variance of transition matrix
+    def _backward(self, s):
+        """Calculate smoothed estimation by RTS-smoother.
 
         Args:
-            t {int} : observation time
+            s {int} : last time for fixed-interval smoothing
+
+        Attributes:
+            A [n_dim_sys, n_dim_sys] {numpy-array, float}
+                : fixed interval smoothed gain
+                固定区間平滑化ゲイン [時間軸，状態変数軸，状態変数軸]
         """
-        H  = _last_dims(self.H, t, 2)
-        R = _last_dims(self.R, t, 2)
-        Rb = _last_dims(self.R, t-1, 2)
 
-        Gh = self.y[t-self.update_interval+1:t+1].T \
-                @ self.xp.linalg.pinv(self.y[t-self.update_interval:t].T) 
-        Fh = self.xp.linalg.pinv(H) @ Gh @ H
-        self.F = self.F - self.eta * self.xp.minimum(self.xp.maximum(-self.cutoff, self.F - Fh), self.cutoff)
-        self.Fs[t//self.update_interval] = self.F
+        # pairwise covariance
+        A = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
 
-        # Calculate variance of observation transition
-        Sh = H @ self.V_pred[t] @ H.T + R - Gh @ (H @ self.V_filt[t-1] @ H.T + Rb) @ Gh.T
+        self.x_smooth[s] = self.x_filt[s]
+        self.V_smooth[s] = self.V_filt[s]
 
-        # Calculate variance of transition matrix
-        nu = self.xp.zeros(self.n_dim_sys * self.update_interval, dtype=self.dtype)
-        kappa = self.xp.zeros(self.n_dim_sys * self.update_interval, dtype=self.dtype)
-        X = self.xp.zeros((self.n_dim_sys * self.update_interval, self.n_dim_sys**2), dtype=self.dtype)
+        # t in [s-tau, s-1]
+        for t in reversed(range(s-self.tau, s)) :
+            # visualize calculating time
+            print("\r expectation step calculating... t={}".format(s - t)
+                 + "/" + str(self.tau), end="")
 
-        for i,s in enumerate(range(t-self.update_interval, t)):
-            Q = _last_dims(self.Q, s, 2)
-            R = _last_dims(self.R, s, 2)
+            # calculate fixed interval smoothing gain
+            A = self.V_filt[t] @ self.F.T @ self.xp.linalg.pinv(self.V_pred[t + 1])
+            
+            # fixed interval smoothing
+            self.x_smooth[t] = self.x_filt[t] \
+                + A @ (self.x_smooth[t + 1] - self.x_pred[t + 1])
+            self.V_smooth[t] = self.V_filt[t] \
+                + A @ (self.V_smooth[t + 1] - self.V_pred[t + 1]) @ A.T
 
-            X0 = self.xp.square(self.x_filt[s]) + self.xp.diag(self.V_filt[s])
-            for j in range(self.n_dim_sys):
-                X[self.n_dim_sys*i+j, self.n_dim_sys*j:self.n_dim_sys*(j+1)] = X0
-            nu0 = self.xp.diag(self.V_pred[s+1])
-            nu[self.n_dim_sys*i:self.n_dim_sys*(i+1)] = nu0
-            kappa0 = self.xp.diag(self.xp.linalg.pinv(H) @ (Gh @ (H @ self.V_filt[s] @ H.T) @ Gh.T \
-                        + Sh - R) @ self.xp.linalg.pinv(H.T) - Q)
-            kappa[self.n_dim_sys*i:self.n_dim_sys*(i+1)] = kappa0
+            # calculate pairwise covariance
+            self.V_pair[t + 1] = self.V_smooth[t + 1] @ A.T
 
-        self.FV[t//self.update_interval] = (self.xp.linalg.pinv(X) @ (kappa - nu))\
-                                            .reshape(self.n_dim_sys, self.n_dim_sys)
+        self.x_pred
 
 
     def get_predicted_value(self, dim = None):
@@ -421,76 +474,6 @@ class SequentialUpdateKalmanFilter(object) :
                 return self.Fs[ids]
         else:
             return self.F
-
-
-    def get_variance_of_transition_matrices(self, ids = None):
-        """Get transition matrices
-        
-        Args:
-            ids {numpy-array, int} : ids of transition matrices
-
-        Returns {numpy-array, float}:
-            : transition matrices
-        """
-        if self.calculate_variance:
-            if ids is None:
-                return self.FV
-            else:
-                return self.FV[ids]
-        else:
-            print("Need to be \"calculate_variance\" on.")
-
-
-    def smooth(self):
-        """Calculate RTS smooth for times.
-
-        Args:
-            T : length of data y (時系列の長さ)
-            x_smooth [n_time, n_dim_sys] {numpy-array, float}
-                : mean of hidden state distributions for times
-                 [0...n_times-1] given all observations
-                時刻 t における状態変数の平滑化期待値 [時間軸，状態変数軸]
-            V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
-                : covariances of hidden state distributions for times
-                 [0...n_times-1] given all observations
-                時刻 t における状態変数の平滑化共分散 [時間軸，状態変数軸，状態変数軸]
-            A [n_dim_sys, n_dim_sys] {numpy-array, float}
-                : fixed interval smoothed gain
-                固定区間平滑化ゲイン [時間軸，状態変数軸，状態変数軸]
-        """
-
-        # if not implement `filter`, implement `filter`
-        try :
-            self.x_pred[0]
-        except :
-            self.filter()
-
-        T = self.y.shape[0]
-        self.x_smooth = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
-        self.V_smooth = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
-             dtype = self.dtype)
-        A = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
-
-        self.x_smooth[-1] = self.x_filt[-1]
-        self.V_smooth[-1] = self.V_filt[-1]
-
-        # t in [0, T-2] (notice t range is reversed from 1~T)
-        for t in reversed(range(T - 1)) :
-            # visualize calculating times
-            print("\r smooth calculating... t={}".format(T - t)
-                 + "/" + str(T), end="")
-
-            # extract parameters for time t
-            F = _last_dims(self.F, t, 2)
-
-            # calculate fixed interval smoothing gain
-            A = self.xp.dot(self.V_filt[t], self.xp.dot(F.T, self.xp.linalg.pinv(self.V_pred[t + 1])))
-            
-            # fixed interval smoothing
-            self.x_smooth[t] = self.x_filt[t] \
-                + self.xp.dot(A, self.x_smooth[t + 1] - self.x_pred[t + 1])
-            self.V_smooth[t] = self.V_filt[t] \
-                + self.xp.dot(A, self.xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
 
             
     def get_smoothed_value(self, dim = None):
