@@ -18,3 +18,4 @@ Data Assimilation repository
 	- Particle Filter (PF)
 	- Gaussian Particle Filter (GPF)
 	- Markov Transition Kalman Filter (MTKF)
+	- Hidden Markov Model (HMM)
