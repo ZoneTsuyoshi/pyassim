@@ -13,12 +13,12 @@ with open('LICENSE') as f:
 
 setup(
     name='pyassim',
-    version='0.1.0',
+    version='0.0.1',
     description='Package for data assimilation',
     long_description=readme,
     author='Tsuyoshi Ishizone',
-    author_email='',
-    install_requires=['numpy', 'pandas', 'scipy']
+    author_email='tsuyoshi.ishizone@gmail.com',
+    install_requires=['numpy']
     url='https://github.com/ZoneTsuyoshi/pyassim',
     license=license,
     packages=find_packages(exclude=('tests', 'docs'))

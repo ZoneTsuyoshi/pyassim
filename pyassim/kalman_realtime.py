@@ -152,8 +152,9 @@ class KalmanFilterRealtime(object) :
                 transition_covariance = None, observation_covariance = None,
                 transition_offset = None, observation_offset = None,
                 adjacency_matrix = None,
-                n_dim_sys = None, n_dim_obs = None, dtype = "float32",
-                save_path = None, 
+                n_dim_sys = None, n_dim_obs = None, lag = 5,
+                dtype = "float32",
+                save_path = None, mode = "filter",
                 em_vars = ["transition_matrices", "observation_matrices",
                     "transition_covariance", "observation_covariance",
                     "initial_mean", "initial_covariance"],
@@ -165,10 +166,12 @@ class KalmanFilterRealtime(object) :
         if use_gpu:
             import cupy
             self.xp = cupy
+            self.xp_type = "cupy"
             # cupy.cuda.set_allocator(cupy.cuda.MemoryPool().malloc)
             # from cupy import linalg
         else:
             self.xp = np
+            self.xp_type = "numpy"
             # from numpy import linalg
 
         # determine dimensionality
@@ -179,25 +182,50 @@ class KalmanFilterRealtime(object) :
              (initial_mean, array1d, -1),
              (initial_covariance, array2d, -2),
              (observation_matrix, array2d, -1)],
-            n_dim_sys
+            n_dim_sys,
+            self.xp_type
         )
 
         self.n_dim_obs = _determine_dimensionality(
             [(observation_matrix, array2d, -2),
              (observation_offset, array1d, -1),
              (observation_covariance, array2d, -2)],
-            n_dim_obs
+            n_dim_obs,
+            self.xp_type
         )
 
-        if initial_mean is None:
-            self.x = self.xp.zeros(self.n_dim_sys, dtype = dtype)
+        self.lag_on = False
+        if mode=="filter":
+            self.forward_update = self._forward_update
+        elif mode=="lag_smooth":
+            self.forward_update = self._fixed_lag_smooth
+            self.L = int(lag)
+            self.lag_on = True
+
+        if self.lag_on:
+            if initial_mean is None:
+                self.x = self.xp.zeros((self.L+1, self.n_dim_sys), dtype = dtype)
+            else:
+                self.x = self.xp.zeros((self.L+1, self.n_dim_sys), dtype = dtype)
+                self.x[:] = self.xp.asarray(initial_mean, dtype = dtype)
         else:
-            self.x = self.xp.asarray(initial_mean, dtype = dtype)
+            if initial_mean is None:
+                self.x = self.xp.zeros(self.n_dim_sys, dtype = dtype)
+            else:
+                self.x = self.xp.asarray(initial_mean, dtype = dtype)
         
-        if initial_covariance is None:
-            self.V = self.xp.eye(self.n_dim_sys, dtype = dtype)
+        if self.lag_on:
+            if initial_covariance is None:
+                self.V = self.xp.zeros((self.L+1, self.n_dim_sys, self.n_dim_sys), dtype = dtype)
+                self.V[:] = self.xp.eye(self.n_dim_sys, dtype = dtype)
+            else:
+                self.V = self.xp.zeros((self.L+1, self.n_dim_sys, self.n_dim_sys), dtype = dtype)
+                self.V[:] = self.xp.asarray(initial_covariance, dtype = dtype)
         else:
-            self.V = self.xp.asarray(initial_covariance, dtype = dtype)
+            if initial_covariance is None:
+                self.V = self.xp.eye(self.n_dim_sys, dtype = dtype)
+            else:
+                self.V = self.xp.asarray(initial_covariance, dtype = dtype)
 
         if transition_matrix is None:
             # self.F = sparse.eye(self.n_dim_sys, dtype = dtype)
@@ -257,7 +285,7 @@ class KalmanFilterRealtime(object) :
 
 
 
-    def forward_update(self, t, y, F=None, H=None, Q=None, R=None, b=None, d=None, on_save=False,
+    def _forward_update(self, t, y, F=None, H=None, Q=None, R=None, b=None, d=None, on_save=False,
                     save_path=None, fillnum = 3, return_on=False):
         """Calculate prediction and filter regarding arguments.
 
@@ -333,6 +361,7 @@ class KalmanFilterRealtime(object) :
         # If y[t] has any mask, skip filter calculation
         # if not self.xp.any(self.xp.isnan(y)):
         # calculate filter step
+        # print(H.shape, self.V.shape, R.shape)
         K = self.V @ ( H.T @ self.xp.linalg.inv(H @ (self.V @ H.T) + R) )
         self.x = self.x + K @ ( y - (H @ self.x + d) )
         self.V = self.V - K @ (H @ self.V)
@@ -351,6 +380,159 @@ class KalmanFilterRealtime(object) :
         # print("filtered time : {}".format(t3-t2))
         if return_on:
             return self.x
+
+
+    def forward_update_v1_t0(self, y, H):
+        K = self.V @ ( H.T @ self.xp.linalg.inv(H @ (self.V @ H.T) + self.R) )
+        self.x = self.x + K @ ( y - (H @ self.x + self.d) )
+        self.V = self.V - K @ (H @ self.V)
+        return self.x
+
+
+    def forward_update_v1(self, y, H=None):
+        """Calculate prediction and filter regarding arguments.
+
+        Args:
+            t {int}
+                : time for calculating.
+            y [n_dim_obs] {numpy-array, float}
+                : also known as :math:`y`. observation value
+                観測値[観測変数軸]
+            F [n_dim_sys, n_dim_sys]{numpy-array, float}
+                : also known as :math:`F`. transition matrix from x_{t-1} to x_{t}
+                システムモデルの変換行列[状態変数軸，状態変数軸]
+            H [n_dim_sys, n_dim_obs] {numpy-array, float}
+                : also known as :math:`H`. observation matrix from x_{t} to y_{t}
+                観測行列 [状態変数軸，観測変数軸]
+            Q [n_dim_sys, n_dim_noise] {numpy-array, float}
+                : also known as :math:`Q`. system transition covariance for times
+                システムノイズの共分散行列[ノイズ変数軸，ノイズ変数軸]
+            R [n_time, n_dim_obs, n_dim_obs] {numpy-array, float} 
+                : also known as :math:`R`. observation covariance for times.
+                観測ノイズの共分散行列[観測変数軸，観測変数軸]
+            b [n_dim_sys], {numpy-array, float} 
+                : also known as :math:`b`. system offset for times.
+                システムモデルの切片（バイアス，オフセット） [状態変数軸]
+            d [n_dim_obs] {numpy-array, float}
+                : also known as :math:`d`. observation offset for times.
+                観測モデルの切片 [観測変数軸]
+            on_save {boolean}
+                : if true, save state x and covariance V.
+            fillnum {int}
+                : number of filling for zfill.
+
+        Attributes:
+            K [n_dim_sys, n_dim_obs] {numpy-array, float}
+                : Kalman gain matrix for time t [状態変数軸，観測変数軸]
+                カルマンゲイン
+        """
+        # calculate predicted distribution for time t
+        self.x = self.F @ self.x + self.b
+        self.V = self.F @ self.V @ self.F.T + self.Q
+
+        K = self.V @ ( H.T @ self.xp.linalg.inv(H @ (self.V @ H.T) + self.R) )
+        self.x = self.x + K @ ( y - (H @ self.x + self.d) )
+        self.V = self.V - K @ (H @ self.V)
+        return self.x
+
+
+    def _fixed_lag_smooth(self, t, y, F=None, H=None, Q=None, R=None, b=None, d=None, on_save=False,
+                    save_path=None, fillnum = 3, return_on=False):
+        """Calculate prediction and filter regarding arguments.
+
+        Args:
+            t {int}
+                : time for calculating.
+            y [n_dim_obs] {numpy-array, float}
+                : also known as :math:`y`. observation value
+                観測値[観測変数軸]
+            F [n_dim_sys, n_dim_sys]{numpy-array, float}
+                : also known as :math:`F`. transition matrix from x_{t-1} to x_{t}
+                システムモデルの変換行列[状態変数軸，状態変数軸]
+            H [n_dim_sys, n_dim_obs] {numpy-array, float}
+                : also known as :math:`H`. observation matrix from x_{t} to y_{t}
+                観測行列 [状態変数軸，観測変数軸]
+            Q [n_dim_sys, n_dim_noise] {numpy-array, float}
+                : also known as :math:`Q`. system transition covariance for times
+                システムノイズの共分散行列[ノイズ変数軸，ノイズ変数軸]
+            R [n_time, n_dim_obs, n_dim_obs] {numpy-array, float} 
+                : also known as :math:`R`. observation covariance for times.
+                観測ノイズの共分散行列[観測変数軸，観測変数軸]
+            b [n_dim_sys], {numpy-array, float} 
+                : also known as :math:`b`. system offset for times.
+                システムモデルの切片（バイアス，オフセット） [状態変数軸]
+            d [n_dim_obs] {numpy-array, float}
+                : also known as :math:`d`. observation offset for times.
+                観測モデルの切片 [観測変数軸]
+            on_save {boolean}
+                : if true, save state x and covariance V.
+            fillnum {int}
+                : number of filling for zfill.
+
+        Attributes:
+            K [n_dim_sys, n_dim_obs] {numpy-array, float}
+                : Kalman gain matrix for time t [状態変数軸，観測変数軸]
+                カルマンゲイン
+        """
+
+        if F is None:
+            F = self.F
+        if H is None:
+            H = self.H
+        if Q is None:
+            Q = self.Q
+        if R is None:
+            R = self.R
+        if b is None:
+            b = self.b
+        if d is None:
+            d = self.d
+        if save_path is None and on_save:
+            save_path = self.save_path
+        # tnums = self.xp.zeros(6)
+        # tnums[0] = time.time()
+
+        # calculate predicted distribution for time t
+        low = max(t-self.L, 0)
+        if t != 0:
+            self.x[-1] = F @ self.x[-2] + b
+            self.V[-1] = F @ self.V[-2] @ F.T + Q
+            self.V[:-1] = self.V[:-1] @ F.T
+
+            if on_save:
+                self.xp.save(os.path.join(save_path, "predictive_mean_"
+                                                    + str(t).zfill(fillnum) + ".npy"),
+                        self.x)
+                self.xp.save(os.path.join(save_path, "predictive_covariance_"
+                                                    + str(t).zfill(fillnum) + ".npy"),
+                        self.V)
+
+        # tnums[1] = time.time()
+
+        # print("predicted time : {}".format(t2-t1))
+            
+        # If y[t] has any mask, skip filter calculation
+        # if not self.xp.any(self.xp.isnan(y)):
+        # calculate filter step
+        K = self.V @ ( H.T @ self.xp.linalg.inv(H @ (self.V[-1] @ H.T) + R) )
+        self.x = self.x + K @ ( y - (H @ self.x[-1] + d) )
+        self.V = self.V - K @ (H @ self.V[-1])
+        # tnums[2] = time.time()
+
+        if on_save:
+            self.xp.save(os.path.join(save_path, "filtered_mean_"
+                                            + str(t).zfill(fillnum) + ".npy"),
+                    self.x)
+            self.xp.save(os.path.join(save_path, "filtered_covariance_"
+                                            + str(t).zfill(fillnum) + ".npy"),
+                    self.V)
+
+        # for i in range(2):
+        #     self.times[i] += tnums[i+1] - tnums[i]
+        # print("filtered time : {}".format(t3-t2))
+        if return_on:
+            return self.x
+
 
 
     def backward_update(self, t, T, y, F=None, on_save=False, save_path=None, fillnum = 3):

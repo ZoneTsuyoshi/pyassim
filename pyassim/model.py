@@ -1,70 +1,236 @@
-from abc import ABCMeta, abstractmethod
 import numpy as np
 import math
 
-class ODE(metaclass=ABCMeta):
-    @abstractmethod
-    def f(self, x, t):
+class ODE(object):
+    def __init__(self, xp_type="numpy"):
+        if xp_type=="numpy":
+            self.xp = np
+        elif xp_type=="cupy":
+            import cupy
+            self.xp = cupy
+
+    def f(self, t, x):
         pass
 
 
-
-class DampedOccilationModel(ODE):
-    def __init__(self, m, k, r, w):
+class DampedOscillationModel(ODE):
+    def __init__(self, m, k, r, w, xp_type="numpy"):
+        super(DampedOscillationModel, self).__init__(xp_type)
         self.m = m
         self.k = k
         self.r = r
         self.w = w
 
 
-    def f(self, x, t):
-        perturbation = np.zeros_like(x)
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
         perturbation[0] = x[1]
         perturbation[1] = (- self.k * x[0] - self.r * x[1] + self.w(t)) / self.m
         return perturbation
 
 
-class CoefficientChangedDampedOccilationModel(ODE):
-    def __init__(self, m, k, r, w):
+class CoefficientChangedDampedOscillationModel(ODE):
+    def __init__(self, m, k, r, w, xp_type="numpy"):
+        super(CoefficientChangedDampedOscillationModel, self).__init__(xp_type)
         self.m = m
         self.k = k
         self.r = r
         self.w = w
 
 
-    def f(self, x, t):
-        perturbation = np.zeros_like(x)
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
         perturbation[0] = x[1]
         perturbation[1] = (- self.k(t) * x[0] - self.r(t) * x[1] + self.w(t)) / self.m
         return perturbation
 
 
 class DuffingModel(ODE):
-    def __init__(self, m, alpha, beta):
+    def __init__(self, m, alpha, beta, xp_type="numpy"):
+        super(DuffingModel, self).__init__(xp_type)
         self.m = m
         self.alpha = alpha
         self.beta = beta
 
 
-    def f(self, x, t):
-        perturbation = np.zeros_like(x)
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
         perturbation[0] = x[1]
         perturbation[1] = (- self.alpha * x[0] - self.beta * x[0]**3) / self.m
         return perturbation
 
 
 class Lorentz63Model(ODE):
-    def __init__(self, sigma, rho, beta):
+    def __init__(self, sigma, rho, beta, xp_type="numpy"):
+        super(Lorentz63Model, self).__init__(xp_type)
         self.sigma = sigma
         self.rho = rho
         self.beta = beta
 
-    def f(self, x, t):
-        perturbation = np.zeros_like(x)
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
         perturbation[0] = self.sigma * (x[1] - x[0])
         perturbation[1] = x[0] * (self.rho - x[2]) - x[1]
         perturbation[2] = x[0] * x[1] - self.beta * x[2]
         return perturbation
+
+
+class Lorentz96Model(ODE):
+    def __init__(self, N, F, xp_type="numpy"):
+        super(Lorentz96Model, self).__init__(xp_type)
+        self.N = N
+        self.F = F
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = (x[1] - x[-2]) * x[-1] - x[0]
+        perturbation[1] = (x[2] - x[-1]) * x[0] - x[1]
+        perturbation[-1] = (x[0] - x[-3]) * x[-2] - x[-1]
+        perturbation[2:-1] = (x[3:] - x[:-3]) * x[1:-2] - x[2:-1]
+        return perturbation + self.F
+
+
+class PeriodicDiffusion(ODE):
+    def __init__(self, N, g=None, xp_type="numpy"):
+        super(PeriodicDiffusion, self).__init__(xp_type)
+        self.N = N
+        if g is None:
+            self.g = lambda x:x
+        else:
+            self.g = g
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = (- 2*x[0] + x[-1] + x[1])/4
+        perturbation[-1] = (- 2*x[-1] + x[0] + x[-2])/4
+        perturbation[1:-1] = (- 2*x[1:-1] + x[:-2] + x[2:])/4
+        return perturbation + self.g(x)
+
+
+class VanderPol(ODE):
+    def __init__(self, mu, xp_type="numpy"):
+        super(VanderPol, self).__init__(xp_type)
+        self.mu = mu
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = x[1]
+        perturbation[1] = self.mu * (1 - x[0]**2) * v - x[0]
+        return perturbation
+
+
+class FitzHughNagumo(ODE):
+    def __init__(self, a, b, c, I, xp_type="numpy"):
+        super(FitzHughNagumo, self).__init__(xp_type)
+        self.a = a
+        self.b = b
+        self.c = c
+        self.I = I
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = self.c * (x[0] - x[1] - x[0]**3 / 3 + self.I(t))
+        perturbation[1] = self.a + x[0] - self.b * x[1]
+        return perturbation
+
+
+class LotkaVolterra(ODE):
+    def __init__(self, a, b, c, d, xp_type="numpy"):
+        super(LotkaVolterra, self).__init__(xp_type)
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = self.a * x[0] - self.b * x[0] * x[1]
+        perturbation[1] = self.c * x[0] * x[1] - self.d * x[1]
+        return perturbation
+
+
+class ClockReaction(ODE):
+    def __init__(self, k1, k2, xp_type="numpy"):
+        super(ClockReaction, self).__init__(xp_type)
+        self.k1 = k1
+        self.k2 = k2
+
+    def f(self, t, x):
+        #x0:A, x1:B, x2:T, x3:L
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = - self.k1 * x[0] * x[1]
+        perturbation[1] = - self.k1 * x[0] * x[1]
+        perturbation[2] = self.k1 * x[0] * x[1] - self.k2 * x[2] * x[3]
+        perturbation[3] = - self.k2 * x[2] * x[3]
+        return perturbation
+
+
+class OregonatorTyson(ODE):
+    def __init__(self, q, f1, epsilon, xp_type="numpy"):
+        super(OregonatorTyson, self).__init__(xp_type)
+        self.q = q
+        self.f1 = f1
+        self.epsilon = epsilon
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = ((self.q - x[0]) / (self.q + x[0]) * self.f1 * x[1]
+                             + x[0] * (1 - x[0])) / self.epsilon
+        perturbation[1] = x[0] - x[1]
+        return perturbation
+
+
+class Oregonator(ODE):
+    def __init__(self, q, f1, epsilon1, epsilon2, xp_type="numpy"):
+        super(Oregonator, self).__init__(xp_type)
+        self.q = q
+        self.f1 = f1
+        self.epsilon1 = epsilon1
+        self.epsilon2 = epsilon2
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = (self.q * x[1] - x[0] * x[1]
+                             + x[0] * (1 - x[0])) / self.epsilon1
+        perturbation[1] = (- self.q * x[1] - x[0] * x[1]
+                             + self.f1 * x[2]) / self.epsilon2
+        perturbation[2] = x[0] - x[2]
+        return perturbation
+
+
+class OregonatorCombination(ODE):
+    def __init__(self, q, f1, epsilon1, epsilon2, intensity, xp_type="numpy"):
+        super(OregonatorCombination, self).__init__(xp_type)
+        self.q = q
+        self.f1 = f1
+        self.epsilon1 = epsilon1
+        self.epsilon2 = epsilon2
+        self.intensity = intensity
+
+    def f(self, t, x):
+        perturbation = self.xp.zeros_like(x)
+        perturbation[0] = (self.q * x[1] - x[0] * x[1]
+                             + x[0] * (1 - x[0])
+                             + self.intensity * (x[3] - x[0])) / self.epsilon1
+        perturbation[1] = (- self.q * x[1] - x[0] * x[1]
+                             + self.f1 * x[2]
+                             + self.intensity * (x[4] - x[1])) / self.epsilon2
+        perturbation[2] = x[0] - x[2]
+        perturbation[3] = (self.q * x[3] - x[3] * x[4]
+                             + x[3] * (1 - x[3])
+                             + self.intensity * (x[0] - x[3])) / self.epsilon1
+        perturbation[4] = (- self.q * x[4] - x[3] * x[4]
+                             + self.f1 * x[5]
+                             + self.intensity * (x[1] - x[4])) / self.epsilon2
+        perturbation[5] = x[3] - x[5]
+        return perturbation
+
+
+
+def rotation_matrix_2d(theta):
+    R = np.array([[math.cos(theta), -math.sin(theta)],
+                  [math.sin(theta), math.cos(theta)]])
+    return R        
 
 
 def rotation_matrix_3d(theta):

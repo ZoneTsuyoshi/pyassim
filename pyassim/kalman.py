@@ -7,6 +7,7 @@ EM Algorithm for Linear-Gaussian state space models
 """
 
 import math
+import time
 
 import numpy as np
 
@@ -310,6 +311,7 @@ class KalmanFilter(object) :
             raise ValueError('you should confirm observation_covariance_structure.')
 
         self.dtype = dtype
+        self.times = self.xp.zeros(3)
 
 
     def forward(self):
@@ -374,6 +376,7 @@ class KalmanFilter(object) :
                 K = self.V_pred[t] @ (
                     H.T @ self.xp.linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
                     )
+                # print("K: ", K)
                 self.x_filt[t] = self.x_pred[t] + K @ (
                     self.y[t] - (H @ self.x_pred[t] + d)
                     )
@@ -522,6 +525,72 @@ class KalmanFilter(object) :
             self.V_smooth[t] = self.V_filt[t] \
                 + self.xp.dot(A, self.xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
 
+
+    def fixed_lag_smooth(self, L=5):
+        T = self.y.shape[0]
+        self.x_pred = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_pred = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        self.x_filt = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
+        self.V_filt = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
+             dtype = self.dtype)
+        
+        # calculate prediction and filter for every time
+        for t in range(T) :
+            # visualize calculating time
+            print("\r fixed lag smooth calculating... t={}".format(t) + "/" + str(T), end="")
+
+            if t == 0:
+                # initial setting
+                self.x_pred[0] = self.initial_mean
+                self.V_pred[0] = self.initial_covariance
+            else:
+                self._predict_update_lag(t, L)
+            
+            # If y[t] has any mask, skip filter calculation
+            self.x_filt[t] = self.x_pred[t].copy()
+            self.V_filt[t] = self.V_pred[t].copy()
+            if not self.xp.any(self.xp.isnan(self.y[t])):
+                # extract parameters for time t
+                self._filter_update_lag(t, L)
+
+
+    def _predict_update_lag(self, t, L):
+        """Calculate fileter update without noise
+
+        Args:
+            t {int} : observation time
+        """
+        # extract parameters for time t-1
+        F = _last_dims(self.F, t - 1, 2)
+        Q = _last_dims(self.Q, t - 1, 2)
+        b = _last_dims(self.b, t - 1, 1)
+
+        # calculate predicted distribution for time t
+        low = max(0, t-L)
+        self.x_pred[t] = F @ self.x_filt[t-1] + b
+        self.V_pred[t] = F @ self.V_filt[t-1] @ F.T + Q
+        self.V_pred[low:t] = self.V_filt[low:t] @ F.T
+
+
+    def _filter_update_lag(self, t, L):
+        H = _last_dims(self.H, t, 2)
+        R = _last_dims(self.R, t, 2)
+        d = _last_dims(self.d, t, 1)
+
+        # K = self.xp.zeros((L, self.n_dim_sys, self.n_dim_obs), dtype = self.dtype)
+
+        # calculate filter step
+        low = max(0, t-L)
+        K = self.V_pred[low:t+1] @ (
+            H.T @ self.xp.linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
+            )
+        self.x_filt[low:t+1] = self.x_filt[low:t+1] + K @ (
+            self.y[t] - (H @ self.x_pred[t] + d)
+            )
+        self.V_filt[low:t+1] = self.V_pred[low:t+1] - K @ (H @ self.V_pred[t])
+        # only s=0
+
             
     def get_smoothed_value(self, dim = None):
         """Get RTS smoothed value
@@ -622,13 +691,19 @@ class KalmanFilter(object) :
             print("EM calculating... i={}".format(i+1) + "/" + str(n_iter), end="")
 
             # Expectation step
+            start_time = time.time()
             self.forward()
+            self.times[0] = time.time() - start_time
             
             # system covariance transition between time t and t-1
+            start_time = time.time()
             self._sigma_pair_smooth()
+            self.times[1] = time.time() - start_time
 
             # Maximumization step
+            start_time = time.time()
             self._calc_em(given = given)
+            self.times[2] = time.time() - start_time
 
             if save_on:
                 variable_dict = {'transition_matrices': self.F,
@@ -710,7 +785,7 @@ class KalmanFilter(object) :
         # t in [0, T-2]
         for t in reversed(range(T - 1)) :
             # visualize calculating time
-            print("\r eself.xpectation step calculating... t={}".format(T - t)
+            print("\r self.expectation step calculating... t={}".format(T - t)
                  + "/" + str(T), end="")
 
             # extract parameters at time t
@@ -752,7 +827,8 @@ class KalmanFilter(object) :
             res2 = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
 
             for t in range(T):
-                if not self.xp.any(self.xp.ma.getmask(self.y[t])):
+                # if not self.xp.any(self.xp.ma.getmask(self.y[t])):
+                if not self.xp.any(self.xp.isnan(self.y[t])):
                     d = _last_dims(self.d, t, 1)
                     res1 += self.xp.outer(self.y[t] - d, self.x_smooth[t])
                     res2 += self.V_smooth[t] \
@@ -777,7 +853,8 @@ class KalmanFilter(object) :
             # y : n_time x n_obs, d : n_obs
             # H : n_obs x n_sys, x_smooth : n_time x n_sys
             # err : n_time x n_obs
-            boolm = ~self.xp.any(self.y.mask, axis=1)
+            # boolm = ~self.xp.any(self.y.mask, axis=1)
+            boolm = self.xp.any(self.xp.isnan(self.y), axis=1)
             err = self.y[boolm] - (self.H @ self.x_smooth[boolm].T).T \
                  - self.d.reshape(1,len(self.d))
             res1 = err.T @ err + self.H @ self.V_smooth[boolm].sum(axis=0) @ self.H.T
@@ -967,7 +1044,8 @@ class KalmanFilter(object) :
             self.d = self.xp.zeros(self.n_dim_obs, dtype = self.dtype)
             n_obs = 0
             for t in range(T):
-                if not self.xp.any(self.xp.ma.getmask(self.y[t])):
+                # if not self.xp.any(self.xp.ma.getmask(self.y[t])):
+                if not self.xp.any(self.xp.isnan(self.y[t])):
                     H = _last_dims(self.H, t)
                     self.d += self.y[t] - self.xp.dot(H, self.x_smooth[t])
                     n_obs += 1

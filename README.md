@@ -1,21 +1,37 @@
 Data Assimilation repository
 
-- I'm going to make package for data assimilation.
-- This repository haven't been a package yet.
+- this repository is under development
 
+# User Guide for This Package
+## How to Import
+- `python setup.py install`
 
-# User Guide for this package
-- Firstly, you needs import this package, for instance:
-```import pyassim```
+## How to Test
+- `python setup.py test`
 
-- You can make use of below methods for data assimilation.
-	- Kalman Filter (KF)
-	- Ensemble Kalman Filter (EnKF)
-	- Nonlinear Ensemble Kalman Filter (NEnKF)
-	- Local Ensemble Transform Kalman Filter (LETKF)
-	- Realtime Kalman Filter (rKF)
-	- Sequential Update Kalman Filter (SUKF)
-	- Particle Filter (PF)
-	- Gaussian Particle Filter (GPF)
-	- Markov Transition Kalman Filter (MTKF)
-	- Hidden Markov Model (HMM)
+## How to Use
+- please see the codes under `samples/`
+- this repository includes following methods
+    - [x] Kalman Filter (KF)
+    - [x] Ensemble KF (EnKF)
+    - [x] Nonlinear Ensemble KF (NEnKF)
+    - [x] Local EnKF (LETKF)
+    - [x] Linear Opeartor Construction with the Kalman Filter (LOCK)
+    - [x] Local LOCK (LLOCK)
+    - [x] Spatially Uniform LOCK (SLOCK)
+    - [x] Locally and Spatially Uniform LOCK (LSLOCK)
+    - [x] Bayesian LOCK (BLOCK)
+    - [x] Local BLOCK (LBLOCK)
+    - [x] Locally and Spatially Uniform BLOCK (LSBLOCK)
+    - [x] Particle Filter (PF)
+    - [x] Gaussian PF (GPF)
+    - [x] Variational Mapping PF (VMPF)
+    - [x] Hidden Markov Model (HMM)
+- if you tackle high-dimensional problems, this repository provides following methods for memory efficiency
+    - [x] Kalman Filter (KF)
+    - [x] Local LOCK (LLOCK)
+    - [x] Spatially Uniform LOCK (SLOCK)
+    - [x] Locally and Spatially Uniform LOCK (LSLOCK)
+    - [] Local BLOCK (LBLOCK)
+    - [] Locally and Spatially Uniform BLOCK (LSBLOCK)
+- checked items are already developed, no checked items are under development

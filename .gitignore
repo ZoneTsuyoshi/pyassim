@@ -28,6 +28,8 @@ old_codes/
 private/
 notebooks/
 phase3/
+for_lock/
+for_lslock/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
