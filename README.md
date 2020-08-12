@@ -32,6 +32,6 @@ Data Assimilation repository
     - [x] Local LOCK (LLOCK)
     - [x] Spatially Uniform LOCK (SLOCK)
     - [x] Locally and Spatially Uniform LOCK (LSLOCK)
-    - [] Local BLOCK (LBLOCK)
-    - [] Locally and Spatially Uniform BLOCK (LSBLOCK)
+    - [ ] Local BLOCK (LBLOCK)
+    - [ ] Locally and Spatially Uniform BLOCK (LSBLOCK)
 - checked items are already developed, no checked items are under development
