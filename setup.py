@@ -21,6 +21,7 @@ setup(
     install_requires=['numpy']
     url='https://github.com/ZoneTsuyoshi/pyassim',
     license=license,
-    packages=find_packages(exclude=('tests', 'docs'))
+    packages=find_packages(exclude=('tests', 'docs')),
+    test_suite='tests'
 )
 

@@ -11,7 +11,7 @@ from .kalman import KalmanFilter
 from .ensemble import EnsembleKalmanFilter, NonlinearEnsembleKalmanFilter
 from .particle import ParticleFilterGaussian
 from .apf import AuxiliaryParticleFilter
-from .gpf import GaussianParticleFilter
+from .gpf import GaussianParticleFilterGauss
 from .letkf import LocalEnsembleTransformKalmanFilter
 from .lock import LOCK
 from .llock import LocalLOCK

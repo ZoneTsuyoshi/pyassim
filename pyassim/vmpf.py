@@ -13,9 +13,9 @@ import multiprocessing as multi
 
 import numpy as np
 
-from utils import array1d, array2d, check_random_state, get_params, \
+from .utils import array1d, array2d, check_random_state, get_params, \
     preprocess_arguments, check_random_state
-from util_functions import _parse_observations, _last_dims, \
+from .util_functions import _parse_observations, _last_dims, \
     _determine_dimensionality, _log_sum_exp
 
 

@@ -60,9 +60,9 @@ class DuffingModel(ODE):
         return perturbation
 
 
-class Lorentz63Model(ODE):
+class Lorenz63Model(ODE):
     def __init__(self, sigma, rho, beta, xp_type="numpy"):
-        super(Lorentz63Model, self).__init__(xp_type)
+        super(Lorenz63Model, self).__init__(xp_type)
         self.sigma = sigma
         self.rho = rho
         self.beta = beta
@@ -75,9 +75,9 @@ class Lorentz63Model(ODE):
         return perturbation
 
 
-class Lorentz96Model(ODE):
+class Lorenz96Model(ODE):
     def __init__(self, N, F, xp_type="numpy"):
-        super(Lorentz96Model, self).__init__(xp_type)
+        super(Lorenz96Model, self).__init__(xp_type)
         self.N = N
         self.F = F
 
@@ -105,6 +105,36 @@ class PeriodicDiffusion(ODE):
         perturbation[-1] = (- 2*x[-1] + x[0] + x[-2])/4
         perturbation[1:-1] = (- 2*x[1:-1] + x[:-2] + x[2:])/4
         return perturbation + self.g(x)
+
+
+class PeriodicAdvection(ODE):
+    def __init__(self, dx, c, dt=0.01, scheme="upwind", xp_type="numpy"):
+        super(PeriodicAdvection, self).__init__(xp_type)
+        self.dx = dx
+        self.c = c
+        self.dt = dt
+        if scheme in ["upwind", "LW"]:
+            self.scheme = scheme
+        else:
+            raise ValueError("no existing scheme")
+
+    def f(self, t, x):
+        # upwind scheme
+        perturbation = self.xp.zeros_like(x)
+
+        r = self.c / self.dx
+        if self.scheme=="upwind":
+            if self.c > 0:
+                perturbation[0] = r * (x[-1] - x[0])
+                perturbation[1:] = r * (x[:-1] - x[1:])
+            else:
+                perturbation[-1] = r * (x[-1] - x[0])
+                perturbation[:-1] = r * (x[:-1] - x[1:])
+        elif self.scheme=="LW": # Lax-Wendroff
+            perturbation[1:-1] = -r/2*(x[2:]-x[:-2]) + self.dt*r**2/2*(x[2:]-2*x[1:-1]+x[:-2])
+            perturbation[0] = -r/2*(x[1]-x[-1]) + self.dt*r**2/2*(x[1]-2*x[0]+x[-1])
+            perturbation[-1] = -r/2*(x[0]-x[-2]) + self.dt*r**2/2*(x[0]-2*x[-1]+x[-2])
+        return perturbation
 
 
 class VanderPol(ODE):

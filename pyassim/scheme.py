@@ -18,7 +18,8 @@ class Scheme(object):
 
 
     def perfect_simulation(self, initial_x):
-        whole_x = self.xp.zeros((self.timestep, len(initial_x)))
+        shape = [self.timestep] + list(initial_x.shape)
+        whole_x = self.xp.zeros((shape))
         current_x = initial_x.copy()
         whole_x[0] = current_x
 

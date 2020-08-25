@@ -14,7 +14,6 @@ import numpy as np
 from .utils import array1d, array2d
 from .util_functions import _parse_observations, _last_dims, \
     _determine_dimensionality
-# package では . をつける
 
 # Dimensionality of each Kalman Filter parameter for a single time step
 DIM = {

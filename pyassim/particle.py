@@ -33,45 +33,32 @@ class ParticleFilter(object):
     Args:
         y, observation [n_timestep, n_dim_obs] {xp-array, float}
             also known as :math:`y`. observation value
-            観測値 [時間軸,観測変数軸]
         initial_mean [n_dim_sys] {float} 
             also known as :math:`\mu_0`. initial state mean
-            初期状態分布の期待値 [状態変数軸]
         initial_covariance [n_dim_sys, n_dim_sys] {xp-array, float} 
             also known as :math:`\Sigma_0`. initial state covariance
-            初期状態分布の共分散行列[状態変数軸，状態変数軸]
         f, transition_functions [n_timestep] {function}
             also known as :math:`f`. transition function from x_{t-1} to x_{t}
-            システムモデルの遷移関数 [時間軸] or []
         q, transition_noise [n_timestep - 1] {(method, parameters)}
             also known as :math:`p(v)`. method and parameters of transition
             noise. noise distribution must be parametric and need input variable
             `size`, which mean number of ensemble
-            システムノイズの発生方法とパラメータ [時間軸]
-            サイズは指定できる形式
         h, observation_functions [n_timestep] {function}
             also known as :math:`h`. observation function from x_{t} to y_{t}
-            観測演算子 [時間軸] or []
         eta, regularization_noise [n_timestep - 1] {(method, parameters)}
             : noise distribution for regularization. noise distribution
             must be parametric and need input variable `size`,
             which mean number of ensemble
-            正則化のためのノイズ分布
-        n_particle {int}
+        n_particles {int}
             : number of particles (ensembles)
-            粒子数
         n_dim_sys {int}
             : dimension of system variable
-            システム変数の次元
         n_dim_obs {int}
             : dimension of observation variable
-            観測変数の次元
         dtype {self.xp.dtype}
             : dtype of xp-array
-            numpy のデータ型
         seed {int}
             : random seed
-            ランダムシード
 
     Attributes:
         regularization {boolean}
@@ -79,15 +66,14 @@ class ParticleFilter(object):
             after filtering step, add state variables to regularization noise
             because of protecting from degeneration of particle.
             If false, doesn't add regularization noise.
-            正則化項の導入の有無
     """
     def __init__(self, observation = None, 
+                transition_functions = None, observation_functions = None,
                 initial_mean = None, initial_covariance = None,
-                transition_functions = None, transition_noise = None,
-                observation_functions = None,
+                transition_noise = None,
                 save_particles = False,
                 regularization_noise = None,
-                n_particle = 100, n_dim_sys = None, n_dim_obs = None,
+                n_particles = 100, n_dim_sys = None, n_dim_obs = None,
                 use_gpu = False,
                 dtype = "float64", seed = 10):
         self.use_gpu = use_gpu
@@ -155,7 +141,7 @@ class ParticleFilter(object):
             self.regularization = True
 
         self.save_particles = save_particles
-        self.n_particle = n_particle
+        self.n_particles = n_particles
         self.xp.random.seed(seed)
         self.dtype = dtype
 
@@ -165,11 +151,11 @@ class ParticleFilter(object):
         """
         f = _last_dims(self.f, t, 1)[0]
         # raise parametric system noise
-        v = self.q[0](*self.q[1], size = self.n_particle).T
+        v = self.q[0](*self.q[1], size=self.n_particles).T
         # calculate ensemble prediction
         x_pred = f(*[x_filt, v])
         # calculate mean of ensemble prediction
-        self.x_pred_mean[t + 1] = self.xp.mean(x_pred, axis = 1)
+        self.x_pred_mean[t] = self.xp.mean(x_pred, axis=1)
         return x_pred
 
 
@@ -194,10 +180,10 @@ class ParticleFilter(object):
 
             # add regularization
             if self.regularization:
-                x_filt += self.eta[0](*self.eta[1], size = self.n_particle).T
+                x_filt += self.eta[0](*self.eta[1], size=self.n_particles).T
         
         # calculate mean of filtering results
-        self.x_filt_mean[t + 1] = self.xp.mean(x_filt, axis = 1)
+        self.x_filt_mean[t] = self.xp.mean(x_filt, axis=1)
         return x_filt, k
 
     
@@ -208,35 +194,27 @@ class ParticleFilter(object):
         Attributes (self):
             x_pred_mean [n_timestep+1, n_dim_sys] {xp-array, float}
                 : mean of `x_pred` regarding to particles at time t
-                時刻 t における x_pred の粒子平均 [時間軸，状態変数軸]
             x_filt_mean [n_timestep+1, n_dim_sys] {xp-array, float}
                 : mean of `x_filt` regarding to particles
-                時刻 t における状態変数のフィルタ平均 [時間軸，状態変数軸]
 
         Attributes (local):
             T {int}
                 : length of time-series
-                時系列の長さ
-            x_pred [n_dim_sys, n_particle]
+            x_pred [n_dim_sys, n_particles]
                 : hidden state at time t given observations for each particle
-                状態変数の予測アンサンブル [状態変数軸，粒子軸]
-            x_filt [n_dim_sys, n_particle] {xp-array, float}
+            x_filt [n_dim_sys, n_particles] {xp-array, float}
                 : hidden state at time t given observations for each particle
-                状態変数のフィルタアンサンブル [状態変数軸，粒子軸]
-            w [n_particle] {xp-array, float}
+            w [n_particles] {xp-array, float}
                 : weight (likelihoodness) lambda of each particle
-                各粒子の尤度 [粒子軸]
-            v [n_dim_sys, n_particle] {xp-array, float}
+            v [n_dim_sys, n_particles] {xp-array, float}
                 : ensemble menbers of system noise
-                各時刻の状態ノイズ [状態変数軸，粒子軸]
-            k [n_particle] {xp-array, float}
+            k [n_particles] {xp-array, float}
                 : index numbers for resampling
-                各時刻のリサンプリングインデックス [粒子軸]
         """    
         # initial filter, prediction
-        self.x_pred_mean = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys), dtype = self.dtype)
-        self.x_filt_mean = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys), dtype = self.dtype)
-        # x_pred = self.xp.zeros((self.n_dim_sys, self.n_particle), dtype = self.dtype)
+        self.x_pred_mean = self.xp.zeros((self.n_timestep, self.n_dim_sys), dtype = self.dtype)
+        self.x_filt_mean = self.xp.zeros((self.n_timestep, self.n_dim_sys), dtype = self.dtype)
+        # x_pred = self.xp.zeros((self.n_dim_sys, self.n_particles), dtype = self.dtype)
 
         # initial setting
         self.x_pred_mean[0] = self.initial_mean
@@ -244,24 +222,25 @@ class ParticleFilter(object):
 
         # initial distribution
         if self.save_particles:
-            self.x_pred = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys, self.n_particle))
-            self.x_filt = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys, self.n_particle))
-            self.x_filt[0] = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
-                size = self.n_particle).T
-            self.x_pred[0] = self.x_filt[0]
+            self.x_pred = self.xp.zeros((self.n_timestep, self.n_dim_sys, self.n_particles))
+            self.x_filt = self.xp.zeros((self.n_timestep, self.n_dim_sys, self.n_particles))
+            self.x_pred[0] = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
+                size=self.n_particles).T
+            self.x_filt[0], _ = self._filter_update(0, self.x_pred[0])
 
-            for t in range(self.n_timestep):
+            for t in range(1,self.n_timestep):
                 # visualize calculating times
-                print("\r filter calculating... t={}/{}".format(t, self.n_timestep), end="")
-                self.x_pred[t+1] = self._predict_update(t, self.x_filt[t])
-                self.x_filt[t+1], _ = self._filter_update(t, self.x_pred[t+1])
+                print("\r filter calculating... t={}/{}".format(t+1, self.n_timestep), end="")
+                self.x_pred[t] = self._predict_update(t, self.x_filt[t-1])
+                self.x_filt[t], _ = self._filter_update(t, self.x_pred[t])
         else:
-            x_filt = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
-                size = self.n_particle).T
+            x_pred = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
+                size=self.n_particles).T
+            x_filt, _ = self._filter_update(0, x_pred)
 
-            for t in range(self.n_timestep):
+            for t in range(1,self.n_timestep):
                 # visualize calculating times
-                print("\r filter calculating... t={}/{}".format(t, self.n_timestep), end="")
+                print("\r filter calculating... t={}/{}".format(t+1, self.n_timestep), end="")
                 x_pred = self._predict_update(t, x_filt)
                 x_filt, _ = self._filter_update(t, x_pred)
             
@@ -285,17 +264,17 @@ class ParticleFilter(object):
 
         if get_particles and self.save_particles:
             if dim is None:
-                return self.x_pred[1:]
+                return self.x_pred
             elif dim <= self.x_pred.shape[1]:
-                return self.x_pred[1:, int(dim)]
+                return self.x_pred[:, int(dim)]
             else:
                 raise ValueError("The dim must be less than "
                  + self.x_pred.shape[1] + ".")
         else:
             if dim is None:
-                return self.x_pred_mean[1:]
+                return self.x_pred_mean
             elif dim <= self.x_pred_mean.shape[1]:
-                return self.x_pred_mean[1:, int(dim)]
+                return self.x_pred_mean[:, int(dim)]
             else:
                 raise ValueError("The dim must be less than "
                  + self.x_pred_mean.shape[1] + ".")
@@ -319,17 +298,17 @@ class ParticleFilter(object):
 
         if get_particles and self.save_particles:
             if dim is None:
-                return self.x_filt[1:]
+                return self.x_filt
             elif dim <= self.x_filt.shape[1]:
-                return self.x_filt[1:, int(dim)]
+                return self.x_filt[:, int(dim)]
             else:
                 raise ValueError("The dim must be less than "
                  + self.x_filt.shape[1] + ".")
         else:
             if dim is None:
-                return self.x_filt_mean[1:]
+                return self.x_filt_mean
             elif dim <= self.x_filt_mean.shape[1]:
-                return self.x_filt_mean[1:, int(dim)]
+                return self.x_filt_mean[:, int(dim)]
             else:
                 raise ValueError("The dim must be less than "
                  + self.x_filt_mean.shape[1] + ".")
@@ -352,56 +331,46 @@ class ParticleFilter(object):
 
             # add regularization
             if self.regularization:
-                x_filt += self.eta[0](*self.eta[1], size = self.n_particle).T
+                x_filt += self.eta[0](*self.eta[1], size = self.n_particles).T
         
         
         return x_filt
 
 
-    def smooth(self, lag = 10):
+    def smooth(self, lag=10):
         """calculate fixed lag smooth. Because of memory saving,
         also describe filtering step
 
         Args:
             lag {int}
                 : lag of smoothing
-                平滑化のためのラグ
         
         Attributes (self):
             x_pred_mean [n_timestep+1, n_dim_sys] {xp-array, float}
                 : mean of `x_pred` regarding to particles at time t
-                時刻 t における x_pred の粒子平均 [時間軸，状態変数軸]
             x_filt_mean [n_timestep+1, n_dim_sys] {xp-array, float}
                 : mean of `x_filt` regarding to particles
-                時刻 t における状態変数のフィルタ平均 [時間軸，状態変数軸]
             x_smooth_mean [n_timestep, n_dim_sys] {xp-array, float}
                 : mean of `x_smooth` regarding to particles at time t
-                時刻 t における状態変数の平滑化平均 [時間軸，状態変数軸]
 
         Attributes (local):
-            x_pred [n_dim_sys, n_particle]
+            x_pred [n_dim_sys, n_particles]
                 : hidden state at time t given observations for each particle
-                状態変数の予測アンサンブル [状態変数軸，粒子軸]
-            x_filt [n_dim_sys, n_particle] {xp-array, float}
+            x_filt [n_dim_sys, n_particles] {xp-array, float}
                 : hidden state at time t given observations for each particle
-                状態変数のフィルタアンサンブル [状態変数軸，粒子軸]
-            x_smooth [n_timestep, n_dim_sys, n_particle] {xp-array, float}
+            x_smooth [n_timestep, n_dim_sys, n_particles] {xp-array, float}
                 : hidden state at time t given observations[:t+lag] for each particle
-                状態変数の平滑化アンサンブル [時間軸，状態変数軸，粒子軸]
-            w [n_particle] {xp-array, float}
+            w [n_particles] {xp-array, float}
                 : weight (likelihoodness) lambda of each particle
-                各粒子の尤度 [粒子軸]
-            v [n_dim_sys, n_particle] {xp-array, float}
+            v [n_dim_sys, n_particles] {xp-array, float}
                 : ensemble menbers of system noise
-                各時刻の状態ノイズ [状態変数軸，粒子軸]
-            k [n_particle] {xp-array, float}
+            k [n_particles] {xp-array, float}
                 : index numbers for resampling
-                各時刻のリサンプリングインデックス [粒子軸]
         """        
         # initial filter, prediction
-        self.x_pred_mean = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys), dtype = self.dtype)
-        self.x_filt_mean = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys), dtype = self.dtype)
-        self.x_smooth_mean = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys), dtype = self.dtype)
+        self.x_pred_mean = self.xp.zeros((self.n_timestep, self.n_dim_sys), dtype = self.dtype)
+        self.x_filt_mean = self.xp.zeros((self.n_timestep, self.n_dim_sys), dtype = self.dtype)
+        self.x_smooth_mean = self.xp.zeros((self.n_timestep, self.n_dim_sys), dtype = self.dtype)
 
         # initial setting
         self.x_pred_mean[0] = self.initial_mean
@@ -409,45 +378,47 @@ class ParticleFilter(object):
         self.x_smooth_mean[0] = self.initial_mean
 
         if self.save_particles:
-            self.x_pred = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys, self.n_particle), dtype = self.dtype)
-            self.x_filt = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys, self.n_particle), dtype = self.dtype)
-            self.x_smooth = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys, self.n_particle),
+            self.x_pred = self.xp.zeros((self.n_timestep, self.n_dim_sys, self.n_particles), dtype = self.dtype)
+            self.x_filt = self.xp.zeros((self.n_timestep, self.n_dim_sys, self.n_particles), dtype = self.dtype)
+            self.x_smooth = self.xp.zeros((self.n_timestep, self.n_dim_sys, self.n_particles),
                  dtype = self.dtype)
 
             # initial distribution
-            self.x_filt[0] = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
-                size = self.n_particle).T
-            self.x_pred[0] = self.x_filt[0]
+            self.x_pred[0] = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
+                size=self.n_particles).T
+            self.x_filt[0], _ = self._filter_update(0, self.x_pred[0])
             self.x_smooth[0] = self.x_filt[0]
 
-            for t in range(self.n_timestep):
+            for t in range(1,self.n_timestep):
                 print("\r filter and smooth calculating... t={}/{}".format(t, self.n_timestep), end="")
                 
                 ## filter update
-                self.x_pred[t+1] = self._predict_update(t, self.x_filt[t])
-                self.x_filt[t+1], k = self._filter_update(t, self.x_pred[t+1])
+                self.x_pred[t] = self._predict_update(t, self.x_filt[t-1])
+                self.x_filt[t], k = self._filter_update(t, self.x_pred[t])
                 # x_filt = self._smooth_update(t, x_pred, lag)
 
                 # substitute initial smooth value
-                self.x_smooth[t+1] = self.x_filt[t+1]
+                self.x_smooth[t] = self.x_filt[t]
 
                 # calculate fixed lag smoothing
                 if t > lag - 1:
-                    self.x_smooth[t-lag:t+1] = self.x_smooth[t-lag:t+1, :, k]
+                    self.x_smooth[t-lag:t] = self.x_smooth[t-lag:t, :, k]
                 else :
-                    self.x_smooth[:t+1] = self.x_smooth[:t+1, :, k]
+                    self.x_smooth[:t] = self.x_smooth[:t, :, k]
 
             # calculate mean of smoothing results
-            self.x_smooth_mean = self.xp.mean(self.x_smooth, axis = 2)
+            self.x_smooth_mean = self.xp.mean(self.x_smooth, axis=2)
         else:
-            x_smooth = self.xp.zeros((self.n_timestep + 1, self.n_dim_sys, self.n_particle),
+            x_smooth = self.xp.zeros((lag+1, self.n_dim_sys, self.n_particles),
                  dtype = self.dtype)
 
             # initial distribution
-            x_filt = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
-                size = self.n_particle).T
+            x_pred = self.xp.random.multivariate_normal(self.initial_mean, self.initial_covariance, 
+                size = self.n_particles).T
+            x_filt = self._filter_update(0, self.x_pred[0])
+            x_smooth[-1] = x_filt
 
-            for t in range(self.n_timestep):
+            for t in range(1,self.n_timestep):
                 print("\r filter and smooth calculating... t={}/{}".format(t, self.n_timestep), end="")
                 
                 ## filter update
@@ -456,16 +427,15 @@ class ParticleFilter(object):
                 # x_filt = self._smooth_update(t, x_pred, lag)
 
                 # substitute initial smooth value
-                x_smooth[t+1] = x_filt
+                x_smooth[:-1] = x_smooth[1:]
+                x_smooth[-1] = x_filt
 
                 # calculate fixed lag smoothing
-                if t > lag - 1:
-                    x_smooth[t-lag:t+1] = x_smooth[t-lag:t+1, :, k]
-                else :
-                    x_smooth[:t+1] = x_smooth[:t+1, :, k]
+                x_smooth[:-1] = x_smooth[:-1,:,k]
 
-            # calculate mean of smoothing results
-            self.x_smooth_mean = self.xp.mean(x_smooth, axis = 2)
+                # calculate mean of smoothing results
+                self.x_smooth_mean[max(t-lag,0)] = self.xp.mean(x_smooth[0], axis=1)
+            self.x_smooth_mean[-lag-1:] = self.xp.mean(x_smooth, axis=2)
 
 
     def get_smoothed_value(self, dim=None, get_particles=False) :
@@ -486,17 +456,17 @@ class ParticleFilter(object):
 
         if get_particles and self.save_particles:
             if dim is None:
-                return self.x_smooth[1:]
+                return self.x_smooth
             elif dim <= self.x_smooth.shape[1]:
-                return self.x_smooth[1:, int(dim)]
+                return self.x_smooth[:, int(dim)]
             else:
                 raise ValueError("The dim must be less than "
                  + self.x_smooth.shape[1] + ".")
         else:
             if dim is None:
-                return self.x_smooth_mean[1:]
+                return self.x_smooth_mean
             elif dim <= self.x_smooth_mean.shape[1]:
-                return self.x_smooth_mean[1:, int(dim)]
+                return self.x_smooth_mean[:, int(dim)]
             else:
                 raise ValueError("The dim must be less than "
                  + self.x_smooth_mean.shape[1] + ".")
@@ -523,19 +493,21 @@ class ParticleFilterGaussian(ParticleFilter):
             : covariance of Gaussian likelihood function
     """
     def __init__(self, observation = None, 
-                initial_mean = None, initial_covariance = None,
-                transition_functions = None, transition_noise = None,
+                transition_functions = None, 
                 observation_functions = None,
+                initial_mean = None, initial_covariance = None,
+                transition_noise = None,
                 observation_covariance = None,
                 save_particles = None,
                 regularization_noise = None,
-                n_particle = 100, n_dim_sys = None, n_dim_obs = None,
+                n_particles = 100, n_dim_sys = None, n_dim_obs = None,
                 use_gpu = False,
                 dtype = "float64", seed = 10):
-        ParticleFilter.__init__(self, observation, initial_mean, initial_covariance,
-            transition_functions, transition_noise, observation_functions,
+        ParticleFilter.__init__(self, observation, 
+            transition_functions, observation_functions,
+            initial_mean, initial_covariance, transition_noise,
             save_particles, regularization_noise,
-            n_particle, n_dim_sys, n_dim_obs, use_gpu, dtype, seed)
+            n_particles, n_dim_sys, n_dim_obs, use_gpu, dtype, seed)
 
         if observation_covariance is None:
             self.observation_covariance = self.xp.eye(self.n_dim_obs, dtype=self.dtype)
@@ -587,10 +559,10 @@ class ParticleFilterGaussian(ParticleFilter):
 
             # add regularization
             if self.regularization:
-                x_filt += self.eta[0](*self.eta[1], size = self.n_particle).T
+                x_filt += self.eta[0](*self.eta[1], size=self.n_particles).T
         
         # calculate mean of filtering results
-        self.x_filt_mean[t + 1] = self.xp.mean(x_filt, axis = 1)
+        self.x_filt_mean[t] = self.xp.mean(x_filt, axis=1)
         return x_filt, k
 
 
@@ -599,18 +571,20 @@ class ParticleFilterPoisson(ParticleFilter):
     """Poisson
     """
     def __init__(self, observation = None, 
-                initial_mean = None, initial_covariance = None,
-                transition_functions = None, transition_noise = None,
+                transition_functions = None, 
                 observation_functions = None,
+                initial_mean = None, initial_covariance = None,
+                transition_noise = None,                
                 save_particles = None,
                 regularization_noise = None,
-                n_particle = 100, n_dim_sys = None, n_dim_obs = None,
+                n_particles = 100, n_dim_sys = None, n_dim_obs = None,
                 use_gpu = False,
                 dtype = "float64", seed = 10):
-        ParticleFilter.__init__(self, observation, initial_mean, initial_covariance,
-            transition_functions, transition_noise, observation_functions,
+        ParticleFilter.__init__(self, observation, 
+            transition_functions, observation_functions,
+            initial_mean, initial_covariance, transition_noise,
             save_particles, regularization_noise,
-            n_particle, n_dim_sys, n_dim_obs, use_gpu, dtype, seed)
+            n_particles, n_dim_sys, n_dim_obs, use_gpu, dtype, seed)
                 
 
 
@@ -636,7 +610,7 @@ class ParticleFilterPoisson(ParticleFilter):
 
             # add regularization
             if self.regularization:
-                x_filt += self.eta[0](*self.eta[1], size = self.n_particle).T
+                x_filt += self.eta[0](*self.eta[1], size = self.n_particles).T
         
         # calculate mean of filtering results
         self.x_filt_mean[t + 1] = self.xp.mean(x_filt, axis = 1)
