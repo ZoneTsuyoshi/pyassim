@@ -36,4 +36,4 @@
     - [x] Locally and Spatially Uniform LOCK (LSLOCK)
     - [ ] Local BLOCK (LBLOCK)
     - [ ] Locally and Spatially Uniform BLOCK (LSBLOCK)
-- checked items are already developed, no checked items are under development
+- checked items are already developed, the others are under development
