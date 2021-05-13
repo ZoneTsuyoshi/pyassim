@@ -4,7 +4,7 @@ gaussian particle filter
 
 import numpy as np
 import numpy.random as rd
-from scipy import linalg
+# from scipy import linalg
 
 from .util_functions import _last_dims
 from .stats import _log_gaussian_distribution_kernel_Sigma_multi

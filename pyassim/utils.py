@@ -42,7 +42,7 @@ try:
     xp = cupy
 except:
     xp = np
-from scipy import linalg
+from numpy import linalg
 
 
 def array1d(X, dtype=None, order=None):

@@ -30,6 +30,10 @@ notebooks/
 phase3/
 for_lock/
 for_lslock/
+under_development/
+assim-env/
+test-assim/
+test-assim2/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

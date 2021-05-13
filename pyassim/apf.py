@@ -8,7 +8,7 @@ for Nonlinear Non-Gaussian state space models
 
 import numpy as np
 import numpy.random as rd
-from scipy import linalg
+# from scipy import linalg
 
 from .utils import array1d, array2d, check_random_state, get_params, \
     preprocess_arguments, check_random_state
@@ -198,7 +198,7 @@ class AuxiliaryParticleFilter(object):
         """
         Y = np.zeros((self.n_dim_obs, self.n_particle), dtype = self.dtype)
         Y.T[:] = y
-        return np.exp((- 0.5 * (Y - mean).T @ linalg.pinv(covariance) \
+        return np.exp((- 0.5 * (Y - mean).T @ np.linalg.pinv(covariance) \
                 @ (Y - mean))[:, 0])
     
 
@@ -220,7 +220,7 @@ class AuxiliaryParticleFilter(object):
         Y = np.zeros((self.n_dim_obs, self.n_particle), dtype = self.dtype)
         Y.T[:] = y
         return (
-            - 0.5 * (Y - mean).T @ linalg.pinv(covariance) @ (Y - mean)
+            - 0.5 * (Y - mean).T @ np.linalg.pinv(covariance) @ (Y - mean)
             ).diagonal()
 
 

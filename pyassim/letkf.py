@@ -14,9 +14,9 @@ import itertools
 
 import numpy as np
 import numpy.random as rd
-import pandas as pd
+# import pandas as pd
 
-from scipy import linalg
+from numpy import linalg
 
 from multiprocessing import Pool
 import multiprocessing as multi
