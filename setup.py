@@ -13,7 +13,7 @@ with open('LICENSE') as f:
 
 setup(
     name='pyassim',
-    version='0.0.11',
+    version='0.0.1',
     description='Package for data assimilation',
     long_description=readme,
     long_description_content_type='text/plain',
