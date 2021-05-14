@@ -48,52 +48,37 @@ class UnscentedKalmanFilter(object) :
     Args:
         observation [n_time, n_dim_obs] {numpy-array, float}
             also known as :math:`y`. observation value
-            観測値[時間軸,観測変数軸]
         initial_mean [n_dim_sys] {float} 
             also known as :math:`\mu_0`. initial state mean
-            初期状態分布の期待値[状態変数軸]
         initial_covariance [n_dim_sys, n_dim_sys] {numpy-array, float} 
             also known as :math:`\Sigma_0`. initial state covariance
-            初期状態分布の共分散行列[状態変数軸，状態変数軸]
         transition_matrices [n_time - 1, n_dim_sys, n_dim_sys] 
             or [n_dim_sys, n_dim_sys]{numpy-array, float}
             also known as :math:`F`. transition matrix from x_{t-1} to x_{t}
-            システムモデルの変換行列[時間軸，状態変数軸，状態変数軸]
-             or [状態変数軸，状態変数軸]
         n_dim_sys {int}
             : dimension of system transition variable
-            システム変数の次元
         n_dim_obs {int}
             : dimension of observation variable
-            観測変数の次元
         dtype {type}
             : data type of numpy-array
-            numpy のデータ形式
 
     Attributes:
         y : `observation`
         F : `transition_matrices`
         x_pred [n_time+1, n_dim_sys] {numpy-array, float} 
             mean of predicted distribution
-            予測分布の平均 [時間軸，状態変数軸]
         V_pred [n_time+1, n_dim_sys, n_dim_sys] {numpy-array, float}
             covariance of predicted distribution
-            予測分布の共分散行列 [時間軸，状態変数軸，状態変数軸]
         x_filt [n_time+1, n_dim_sys] {numpy-array, float}
             mean of filtered distribution
-            フィルタ分布の平均 [時間軸，状態変数軸]
         V_filt [n_time+1, n_dim_sys, n_dim_sys] {numpy-array, float}
             covariance of filtered distribution
-            フィルタ分布の共分散行列 [時間軸，状態変数軸，状態変数軸]
         x_smooth [n_time, n_dim_sys] {numpy-array, float}
             mean of RTS smoothed distribution
-            固定区間平滑化分布の平均 [時間軸，状態変数軸]
         V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
             covariance of RTS smoothed distribution
-            固定区間平滑化の共分散行列 [時間軸，状態変数軸，状態変数軸]
         filter_update {function}
             update function from x_{t} to x_{t+1}
-            フィルター更新関数
     """
 
     def __init__(self, observation = None,
@@ -135,25 +120,20 @@ class UnscentedKalmanFilter(object) :
 
         Attributes:
             T {int}
-                : length of data y （時系列の長さ）
+                : length of data y
             x_pred [n_time, n_dim_sys] {numpy-array, float}
                 : mean of hidden state at time t given observations
                  from times [0...t-1]
-                時刻 t における状態変数の予測期待値 [時間軸，状態変数軸]
             V_pred [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
                 : covariance of hidden state at time t given observations
                  from times [0...t-1]
-                時刻 t における状態変数の予測共分散 [時間軸，状態変数軸，状態変数軸]
             x_filt [n_time, n_dim_sys] {numpy-array, float}
                 : mean of hidden state at time t given observations from times [0...t]
-                時刻 t における状態変数のフィルタ期待値 [時間軸，状態変数軸]
             V_filt [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
                 : covariance of hidden state at time t given observations
                  from times [0...t]
-                時刻 t における状態変数のフィルタ共分散 [時間軸，状態変数軸，状態変数軸]
             K [n_dim_sys, n_dim_obs] {numpy-array, float}
-                : Kalman gain matrix for time t [状態変数軸，観測変数軸]
-                カルマンゲイン
+                : Kalman gain matrix for time t
         """
 
         T = self.y.shape[0]
@@ -272,14 +252,11 @@ class UnscentedKalmanFilter(object) :
             x_smooth [n_time, n_dim_sys] {numpy-array, float}
                 : mean of hidden state distributions for times
                  [0...n_times-1] given all observations
-                時刻 t における状態変数の平滑化期待値 [時間軸，状態変数軸]
             V_smooth [n_time, n_dim_sys, n_dim_sys] {numpy-array, float}
                 : covariances of hidden state distributions for times
-                 [0...n_times-1] given all observations
-                時刻 t における状態変数の平滑化共分散 [時間軸，状態変数軸，状態変数軸]
+                 [0...n_times-1] given all observations，
             A [n_dim_sys, n_dim_sys] {numpy-array, float}
                 : fixed interval smoothed gain
-                固定区間平滑化ゲイン [時間軸，状態変数軸，状態変数軸]
         """
 
         # if not implement `filter`, implement `filter`

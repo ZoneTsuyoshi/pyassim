@@ -139,13 +139,10 @@ def _emperical_cummulative_inv(w_cumsum, idx, u, xp=np):
     Args:
         w_cumsum [n_particle] {xp-array, float}
             : emperical cummulative function for particles
-            粒子の経験分布関数 [粒子軸]
         idx [n_particle] {xp-array, int}
             : array of ID which are assigined to each particle
-            粒子数を持つID配列
         u {float}
             : value between 0 and 1
-            (0,1)間の値
 
     Returns (int):
         like floor function, ID number which maximize set of ID numbers,
@@ -163,7 +160,6 @@ def _resampling(weights, xp=np):
         Args:
             weights {xp-array, float} [n_particle]
                 : set of likelihoodness for each particle
-                各粒子の尤度(重み)
 
         Returns:
             k_list {xp-array, float} [n_particle]
@@ -190,7 +186,6 @@ def _stratified_resampling(weights, xp=np):
     Args:
         weights {xp-array, float} [n_particle]
             : set of likelihoodness for each particle
-            各粒子の尤度(重み)
 
     Returns:
         k_list {xp-array, float} [n_particle]

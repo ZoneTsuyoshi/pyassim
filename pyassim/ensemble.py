@@ -34,39 +34,27 @@ class EnsembleKalmanFilter(object):
     Args:
         y, observation [n_time, n_dim_obs] {numpy-array, float}
             also known as :math:`y`. observation value
-            観測値 [時間軸,観測変数軸]
         initial_mean [n_dim_sys] {float} 
             also known as :math:`\mu_0`. initial state mean
-            初期状態分布の期待値 [状態変数軸]
         f, transition_functions [n_time] {function}
             also known as :math:`f`. transition function from x_{t-1} to x_{t}
-            システムモデルの遷移関数 [時間軸] or []
         H, observation_matrices [n_time, n_dim_sys, n_dim_obs] {numpy-array, float}
             also known as :math:`H`. observation matrices from x_{t} to y_{t}
-            観測行列 [時間軸，状態変数軸，観測変数軸] or [状態変数軸，観測変数軸]
         q, transition_noise [n_time - 1] {(method, parameters)}
             also known as :math:`v` and `p(v)`. transition noise for v_{t}
-            システムノイズの発生方法とパラメータ [時間軸]
-            サイズは指定できる形式
         R, observation_covariance [n_time, n_dim_obs, n_dim_obs]
             or [n_dim_obs, n_dim_obs] {numpy-array, float} 
             also known as :math:`R`. covariance of observation normal noise
-            観測の共分散行列 [時間軸，観測変数軸，観測変数軸] or [観測変数軸，観測変数軸]
         n_particles {int}
             : number of particles or ensemble members
-            粒子数
         n_dim_sys {int}
             : dimension of system variable
-            システム変数の次元
         n_dim_obs {int}
             : dimension of observation variable
-            観測変数の次元
         dtype {self.xp.dtype}
             : dtype of numpy-array
-            numpy のデータ型
         seed {int}
             : random seed
-            ランダムシード
     """
 
     def __init__(self, observation = None, transition_functions = None,
@@ -165,37 +153,27 @@ class EnsembleKalmanFilter(object):
         Attributes (self):
             T {int}
                 : length of data y
-                時系列の長さ
             x_pred_mean [n_time+1, n_dim_sys] {numpy-array, float}
                 : mean of `x_pred` regarding to particles at time t
-                時刻 t における x_pred の粒子平均 [時間軸，状態変数軸]
             V_pred [n_time+1, n_dim_sys, n_dim_sys] {numpy-array, float}
                 : covariance of hidden state at time t given observations
                  from times [0...t-1]
-                時刻 t における状態変数の予測共分散 [時間軸，状態変数軸，状態変数軸]
             x_filt [n_time+1, n_particles, n_dim_sys] {numpy-array, float}
                 : hidden state at time t given observations for each particle
-                状態変数のフィルタアンサンブル [時間軸，粒子軸，状態変数軸]
             x_filt_mean [n_time+1, n_dim_sys] {numpy-array, float}
                 : mean of `x_filt` regarding to particles
-                時刻 t における状態変数のフィルタ平均 [時間軸，状態変数軸]
             X5 [n_time, n_dim_sys, n_dim_obs] {numpy-array, float}
                 : right operator for filter, smooth calulation
-                filter, smoothing 計算で用いる各時刻の右作用行列
 
         Attributes (local):
             x_pred [n_particles, n_dim_sys] {numpy-array, float}
                 : hidden state at time t given observations for each particle
-                状態変数の予測アンサンブル [粒子軸，状態変数軸]
             x_pred_center [n_particles, n_dim_sys] {numpy-array, float}
                 : centering of `x_pred`
-                x_pred の中心化 [粒子軸，状態変数軸]
             w_ensemble [n_particles, n_dim_obs] {numpy-array, float}
                 : observation noise ensemble
-                観測ノイズのアンサンブル [粒子軸，観測変数軸]
             Inovation [n_dim_obs, n_particles] {numpy-array, float}
                 : Innovation from observation [観測変数軸，粒子軸]
-                観測と予測のイノベーション
         """
 
         # lenght of time-series
@@ -535,7 +513,6 @@ class NonlinearEnsembleKalmanFilter(object):
         Args:
             lag {int}
                 : smoothing lag
-                平滑化ラグ
         """
         self.enkf.smooth(lag)
 

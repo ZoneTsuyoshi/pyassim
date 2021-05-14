@@ -32,63 +32,47 @@ class AuxiliaryParticleFilter(object):
     Args:
         y, observation [n_time, n_dim_obs] {numpy-array, float}
             also known as :math:`y`. observation value
-            観測値 [時間軸,観測変数軸]
         initial_mean [n_dim_sys] {float} 
             also known as :math:`\mu_0`. initial state mean
-            初期状態分布の期待値 [状態変数軸]
         initial_covariance [n_dim_sys, n_dim_sys] {numpy-array, float} 
             also known as :math:`\Sigma_0`. initial state covariance
-            初期状態分布の共分散行列[状態変数軸，状態変数軸]
         f, transition_functions [n_time] {function}
             also known as :math:`f`. transition function from x_{t-1} to x_{t}
-            システムモデルの遷移関数 [時間軸] or []
         q, transition_noise [n_time - 1] {(method, parameters)}
             also known as :math:`p(v)`. method and parameters of transition
             noise. noise distribution must be parametric and need input variable
             `size`, which mean number of ensemble
-            システムノイズの発生方法とパラメータ [時間軸]
-            サイズは指定できる形式
         lf, likelihood_functions [n_time] or [] {function}
             also known as :math:`p(w)`. likelihood function between x_t and y_t.
             only need kernel part and not need regulation part. likelihood function
             must be parameteric and need `likelihood_function_parameters`.
-            観測モデルの尤度関数 [時間軸] or []
         lfp, likelihood_function_parameters [n_time, n_param] or [n_param]
          {numpy-array, float}
             : parameters for `likelihood_functions`
-            尤度関数のパラメータ群 [時間軸，パラメータ軸] or [パラメータ軸]
         likelihood_function_is_log_form {boolean}
             : which `likelihood_functions` are log form. If true,
             `likelihood_functions` mean log likelihood function. If false,
             `likelihood_functions` mean likelihood function. For example,
             if you use gaussian distribution, whose kernel are exponential
             form, then you should use log from because of overflow problem.
-            尤度関数の対数形式の有無
         observation_parameters_time_invariant {boolean}
             : which observation parameters are time-invariant. If true,
             `likelihood_functions` and `likelihood_function_parameters` has
             time-invariantness. If false, they are time-variant
-            観測パラメータの時不変性の有無
         eta, regularization_noise [n_time - 1] {(method, parameters)}
             : noise distribution for regularization. noise distribution
             must be parametric and need input variable `size`,
             which mean number of ensemble
-            正則化のためのノイズ分布
         n_particle {int}
             : number of particles (ensembles)
-            粒子数
         n_dim_sys {int}
             : dimension of system variable
-            システム変数の次元
         n_dim_obs {int}
             : dimension of observation variable
-            観測変数の次元
         dtype {np.dtype}
             : dtype of numpy-array
-            numpy のデータ型
         seed {int}
             : random seed
-            ランダムシード
 
     Attributes:
         regularization {boolean}
@@ -96,7 +80,6 @@ class AuxiliaryParticleFilter(object):
             after filtering step, add state variables to regularization noise
             because of protecting from degeneration of particle.
             If false, doesn't add regularization noise.
-            正則化項の導入の有無
     """
     def __init__(self, observation = None, 
                 initial_mean = None, initial_covariance = None,
@@ -188,13 +171,10 @@ class AuxiliaryParticleFilter(object):
         Args:
             y [n_dim_obs] {numpy-array, float} 
                 observation point which measure likehoodness
-                観測 [観測変数軸]
             mean [n_particle, n_dim_obs] {numpy-array, float}
                 : mean of Gauss distribution
-                各粒子に対する正規分布の平均 [粒子軸，観測変数軸]
             covariance [n_dim_obs, n_dim_obs] {numpy-array, float}
                 : covariance of Gauss distribution
-                正規分布の共分散 [観測変数軸]
         """
         Y = np.zeros((self.n_dim_obs, self.n_particle), dtype = self.dtype)
         Y.T[:] = y
@@ -209,13 +189,10 @@ class AuxiliaryParticleFilter(object):
         Args:
             y [n_dim_obs] {numpy-array, float} 
                 observation point which measure likehoodness
-                観測 [観測変数軸]
             mean [n_particle, n_dim_obs] {numpy-array, float}
                 : mean of Gauss distribution
-                各粒子に対する正規分布の平均 [粒子軸，観測変数軸]
             covariance [n_dim_obs, n_dim_obs] {numpy-array, float}
                 : covariance of Gauss distribution
-                正規分布の共分散 [観測変数軸]
         """
         Y = np.zeros((self.n_dim_obs, self.n_particle), dtype = self.dtype)
         Y.T[:] = y
@@ -230,13 +207,10 @@ class AuxiliaryParticleFilter(object):
         Args:
             w_cumsum [n_particle] {numpy-array, float}
                 : emperical cummulative function for particles
-                粒子の経験分布関数 [粒子軸]
             idx [n_particle] {numpy-array, int}
                 : array of ID which are assigined to each particle
-                粒子数を持つID配列
             u {float}
                 : value between 0 and 1
-                (0,1)間の値
 
         Returns (int):
             like floor function, ID number which maximize set of ID numbers,
@@ -254,7 +228,6 @@ class AuxiliaryParticleFilter(object):
         Args:
             weights {numpy-array, float} [n_particle]
                 : set of likelihoodness for each particle
-                各粒子の尤度(重み)
 
         Returns:
             k_list {numpy-array, float} [n_particle]
@@ -281,7 +254,6 @@ class AuxiliaryParticleFilter(object):
         Args:
             weights {numpy-array, float} [n_particle]
                 : set of likelihoodness for each particle
-                各粒子の尤度(重み)
 
         Returns:
             k_list {numpy-array, float} [n_particle]
@@ -303,30 +275,22 @@ class AuxiliaryParticleFilter(object):
         Attributes (self):
             x_pred_mean [n_time+1, n_dim_sys] {numpy-array, float}
                 : mean of `x_pred` regarding to particles at time t
-                時刻 t における x_pred の粒子平均 [時間軸，状態変数軸]
             x_filt_mean [n_time+1, n_dim_sys] {numpy-array, float}
                 : mean of `x_filt` regarding to particles
-                時刻 t における状態変数のフィルタ平均 [時間軸，状態変数軸]
 
         Attributes (local):
             T {int}
                 : length of time-series
-                時系列の長さ
             x_pred [n_dim_sys, n_particle]
                 : hidden state at time t given observations for each particle
-                状態変数の予測アンサンブル [状態変数軸，粒子軸]
             x_filt [n_dim_sys, n_particle] {numpy-array, float}
                 : hidden state at time t given observations for each particle
-                状態変数のフィルタアンサンブル [状態変数軸，粒子軸]
             w [n_particle] {numpy-array, float}
                 : weight (likelihoodness) lambda of each particle
-                各粒子の尤度 [粒子軸]
             v [n_dim_sys, n_particle] {numpy-array, float}
                 : ensemble menbers of system noise
-                各時刻の状態ノイズ [状態変数軸，粒子軸]
             k [n_particle] {numpy-array, float}
                 : index numbers for resampling
-                各時刻のリサンプリングインデックス [粒子軸]
         """
 
         # length of time-series data
@@ -453,41 +417,30 @@ class AuxiliaryParticleFilter(object):
         Args:
             lag {int}
                 : lag of smoothing
-                平滑化のためのラグ
         
         Attributes (self):
             x_pred_mean [n_time+1, n_dim_sys] {numpy-array, float}
                 : mean of `x_pred` regarding to particles at time t
-                時刻 t における x_pred の粒子平均 [時間軸，状態変数軸]
             x_filt_mean [n_time+1, n_dim_sys] {numpy-array, float}
                 : mean of `x_filt` regarding to particles
-                時刻 t における状態変数のフィルタ平均 [時間軸，状態変数軸]
             x_smooth_mean [n_time, n_dim_sys] {numpy-array, float}
                 : mean of `x_smooth` regarding to particles at time t
-                時刻 t における状態変数の平滑化平均 [時間軸，状態変数軸]
 
         Attributes (local):
             T {int}
                 : length of time-series
-                時系列の長さ
             x_pred [n_dim_sys, n_particle]
                 : hidden state at time t given observations for each particle
-                状態変数の予測アンサンブル [状態変数軸，粒子軸]
             x_filt [n_dim_sys, n_particle] {numpy-array, float}
                 : hidden state at time t given observations for each particle
-                状態変数のフィルタアンサンブル [状態変数軸，粒子軸]
             x_smooth [n_time, n_dim_sys, n_particle] {numpy-array, float}
                 : hidden state at time t given observations[:t+lag] for each particle
-                状態変数の平滑化アンサンブル [時間軸，状態変数軸，粒子軸]
             w [n_particle] {numpy-array, float}
                 : weight (likelihoodness) lambda of each particle
-                各粒子の尤度 [粒子軸]
             v [n_dim_sys, n_particle] {numpy-array, float}
                 : ensemble menbers of system noise
-                各時刻の状態ノイズ [状態変数軸，粒子軸]
             k [n_particle] {numpy-array, float}
                 : index numbers for resampling
-                各時刻のリサンプリングインデックス [粒子軸]
         """
 
         # length of time-series data
