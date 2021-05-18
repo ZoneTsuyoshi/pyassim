@@ -13,3 +13,13 @@ h2{
     background-color: #5b5c76;
     color: #fff;
 }
+
+code{
+    background-color: lightslategrey;
+    color: #000;
+}
+
+pre code{
+    background-color: #000;
+    color: #fff;
+}
