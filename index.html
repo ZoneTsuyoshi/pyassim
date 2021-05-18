@@ -113,6 +113,22 @@ $ sudo python setup.py install
 
 
         <h3 id="kf">KalmanFilter</h3>
-
+        <code>
+            KalmanFilter(observation = None,
+                initial_mean = None, initial_covariance = None,
+                transition_matrices = None, observation_matrices = None,
+                transition_covariance = None, observation_covariance = None,
+                transition_noise_matrices = None,
+                transition_offsets = None, observation_offsets = None,
+                transition_observation_covariance = None,
+                em_vars = ['transition_covariance', 'observation_covariance',
+                'initial_mean', 'initial_covariance'],
+                transition_covariance_structure = 'all',
+                observation_covariance_structure = 'all',
+                transition_vh_length = None,
+                observation_vh_length = None, 
+                n_dim_sys = None, n_dim_obs = None, dtype = "float32",
+                xp_type = "numpy")
+        </code>
     </body>
 </html>
