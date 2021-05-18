@@ -13,7 +13,7 @@ with open('LICENSE') as f:
 
 setup(
     name='pyassim',
-    version='0.0.1',
+    version='0.0.2',
     description='Package for data assimilation',
     long_description=readme,
     long_description_content_type='text/plain',
@@ -24,7 +24,6 @@ setup(
     url='https://github.com/ZoneTsuyoshi/pyassim',
     license=license,
     packages=find_packages(include=('pyassim')),
-    package_dir={"pyassim":"pyassim"},
     py_modules=["math", "logging", "os", "time", "multiprocessing", "itertools", "inspect"],
     test_suite='tests',
     classifier=[
