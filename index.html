@@ -158,13 +158,29 @@ $ sudo python setup.py install
         <ul>
             <li>observation $(T,N_y)$: observation values $\{y_t\}_{t=1}^T$</li>
             <li>initial_mean $(N_x)$: initial state mean $x_1\in\mathbb{R}^{N_x}$</li>
-            <li>initial_covariance $(N_x,N_x)$ initial state covariance $V_1=\mathrm{Cov}(x_1,x_1)\in\mathbb{R}^{N_x\times N_x}$</li>
-            <li></li>
-            <li></li>
-            <li></li>
-            <li></li>
-            <li></li>
-            <li></li>
+            <li>initial_covariance $(N_x,N_x)$: initial state covariance $V_1=\mathrm{Cov}(x_1,x_1)\in\mathbb{R}^{N_x\times N_x}$</li>
+            <li>transition_matrices $(T-1,N_x,N_x)$ or $(N_x,N_x)$: transition matrices $\{F_t\}_{t=1}^{T-1}$.
+                If input shape is $(N_x,N_x)$, transition matrix is time-invarianct $F\in\mathbb{R}^{N_x,N_x}$.
+                Default value is time-invariant identity matrix $F=I$</li>
+            <li>observation_matrices $(T,N_y,N_x)$ or $(N_y,N_x)$: observation matrices $\{H_t\}_{t=1}^{T}$.
+                If input shape is $(N_y,N_x)$, observation matrix is time-invarianct $H\in\mathbb{R}^{N_y,N_x}$.
+                Default value is time-invariant identity matrix $H=I$</li>
+            <li>transition_covariance $(T-1,N_v,N_v)$ or $(N_v,N_v)$: transition covariance $\{Q_t\}_{t=1}^{T-1}$.
+                If input shape is $(N_v,N_v)$, transition covariance is time-invarianct $Q\in\mathbb{R}^{N_v,N_v}$.
+                Default value is time-invariant identity matrix $Q=I$</li>
+            <li>observation_covariance $(T,N_y,N_y)$ or $(N_y,N_y)$: observation covariance $\{R_t\}_{t=1}^{T}$.
+                If input shape is $(N_y,N_y)$, observation covariance is time-invarianct $R\in\mathbb{R}^{N_y,N_y}$.
+                Default value is time-invariant identity matrix $R=I$</li>
+            <li>transition_noise_matrices $(T-1,N_x,N_v)$ or $(N_x,N_v)$: transition noise matrices $\{G_t\}_{t=1}^{T-1}$.
+                If input shape is $(N_x,N_v)$, transition matrix is time-invarianct $G\in\mathbb{R}^{N_x,N_v}$.
+                Default value is time-invariant identity matrix $G=I$.
+                If this argument is None, the noise dimension $N_v=N_x$</li>
+            <li>transition_offsets $(T-1,N_x)$ or (N_x): transition offset vectors $\{b_t\}_{t=1}^{T-1}$.
+                If input shape is $(N_x)$, transition offset is time-invarianct $b\in\mathbb{R}^{N_x}$.
+                Default value is time-invariant zero vector $b=0$</li>
+            <li>observation_offsets $(T,N_y)$ or (N_y): observation offset vectors $\{d_t\}_{t=1}^{T}$.
+                If input shape is $(N_y)$, observation offset is time-invarianct $d\in\mathbb{R}^{N_y}$.
+                Default value is time-invariant zero vector $d=0$</li>
             <li></li>
         </ul>
     </body>
