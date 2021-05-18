@@ -9,7 +9,7 @@
         <!-- <link rel="shortcut icon" href="figs/tennis.jpg" type="image/x-icon"> -->
 
         <script type="text/javascript"
-            src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+            src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS_CHTML">
         </script>
         <script type="text/x-mathjax-config">
             MathJax.Hub.Config({
@@ -148,13 +148,12 @@ $ sudo python setup.py install
                 xp_type = "numpy")
         </code>
         <h4>Mathematical Notation</h4>
-        <p>
-            \begin{align*}
-                x_{t+1}   &= F_{t} x_{t} + b_{t} + G_{t} v_{t} \\
-                y_{t}     &= H_{t} x_{t} + d_{t} + w_{t} \\
-                [v_{t}, w_{t}]^T &\sim N(0, [[Q_{t}, S_{t}], [S_{t}, R_{t}]])
-            \end{align*}
-        </p>
+        <p>This class assumes linear Gaussian state space model</p>
+        \begin{align*}
+            x_{t+1}   &= F_{t} x_{t} + b_{t} + G_{t} v_{t} \\
+            y_{t}     &= H_{t} x_{t} + d_{t} + w_{t} \\
+            [v_{t}, w_{t}]^T &\sim N(0, [[Q_{t}, S_{t}], [S_{t}, R_{t}]])
+        \end{align*}
         <h4>Arguments</h4>
         <ul>
             <li></li>
