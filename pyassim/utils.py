@@ -30,7 +30,7 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 # DAMAGE.
 """
-Utility functions taken from scikit-learn
+Utility functions which are orginally taken from scikit-learn and modify for cupy calculation
 """
 
 import inspect
@@ -39,24 +39,28 @@ import itertools
 import numpy as np
 try:
     import cupy
-    xp = cupy
 except:
-    xp = np
+    pass
 from numpy import linalg
 
+from .util_functions import judge_xp_type
 
-def array1d(X, dtype=None, order=None):
+
+def array1d(X, dtype=None, order=None, xp_type="numpy"):
     """Returns at least 1-d array with data from X"""
+    xp = judge_xp_type(xp_type)
     return xp.asarray(xp.atleast_1d(X), dtype=dtype)
 
 
-def array2d(X, dtype=None, order=None):
+def array2d(X, dtype=None, order=None, xp_type="numpy"):
     """Returns at least 2-d array with data from X"""
+    xp = judge_xp_type(xp_type)
     return xp.asarray(xp.atleast_2d(X), dtype=dtype)
 
 
-def array3d(X, dtype=None, order=None):
+def array3d(X, dtype=None, order=None, xp_type="numpy"):
     """Returns at least 3-d array with data from X"""
+    xp = judge_xp_type(xp_type)
     return xp.asarray(xp.atleast_3d(X), dtype=dtype)
 
 

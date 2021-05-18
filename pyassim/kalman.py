@@ -4,6 +4,7 @@ Inference with Kalman Filter
 =============================
 This module implements the Kalman Filter, Kalman Smoother, and
 EM Algorithm for Linear-Gaussian state space models
+We started from KalmanFilter class of pykalman and heavily refactored it for new functionality.
 """
 
 import math
@@ -12,8 +13,7 @@ import time
 import numpy as np
 
 from .utils import array1d, array2d
-from .util_functions import _parse_observations, _last_dims, \
-    _determine_dimensionality
+from .util_functions import _last_dims, _determine_dimensionality
 
 # Dimensionality of each Kalman Filter parameter for a single time step
 DIM = {
@@ -114,6 +114,8 @@ class KalmanFilter(object) :
             : dimension of observation variable
         dtype {type}
             : data type of numpy-array
+        xp_type {str}
+            : calculating package. select from ["numpy", "cupy"] and default is "numpy".
 
     Attributes:
         y : `observation`
@@ -158,10 +160,10 @@ class KalmanFilter(object) :
                 transition_vh_length = None,
                 observation_vh_length = None, 
                 n_dim_sys = None, n_dim_obs = None, dtype = "float32",
-                use_gpu = False):
+                xp_type = "numpy"):
         """Setup initial parameters.
         """
-        if use_gpu:
+        if xp_type=="cupy":
             import cupy
             self.xp = cupy
         else:
@@ -199,7 +201,6 @@ class KalmanFilter(object) :
                      (transition_covariance, array2d, -2)]
                 )
 
-        # self.y = _parse_observations(observation)
         self.y = observation.copy()
 
         if initial_mean is None:
@@ -249,10 +250,10 @@ class KalmanFilter(object) :
             self.d = observation_offsets.astype(dtype)
 
         if transition_observation_covariance is None:
-            self.predict_update = self._predict_update_no_noise
+            self.predict_update = self._predict_update_without_noise_correlation
         else:
             self.S = transition_observation_covariance
-            self.predict_update = self._predict_update_noise
+            self.predict_update = self._predict_update_with_noise_correlation
 
         self.em_vars = em_vars
         if transition_covariance_structure == 'triD2':
@@ -285,12 +286,15 @@ class KalmanFilter(object) :
         self.times = self.xp.zeros(3)
 
 
-    def forward(self):
+    def forward(self, y=None):
         """Calculate prediction and filter for observation times.
+        Args:
+            y [n_time, n_dim_obs] {numpy-array, float}
+                : observation value
 
         Attributes:
             T {int}
-                : length of data y
+                : length of data
             x_pred [n_time, n_dim_sys] {numpy-array, float}
                 : mean of hidden state at time t given observations
                  from times [0...t-1]
@@ -305,8 +309,8 @@ class KalmanFilter(object) :
             K [n_dim_sys, n_dim_obs] {numpy-array, float}
                 : Kalman gain matrix for time t
         """
-
-        T = self.y.shape[0]
+        y = self._parse_y(y)
+        T = y.shape[0]
         self.x_pred = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
         self.V_pred = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
@@ -325,11 +329,10 @@ class KalmanFilter(object) :
                 self.x_pred[0] = self.initial_mean
                 self.V_pred[0] = self.initial_covariance
             else:
-                self.predict_update(t)
+                self.predict_update(t, y[t-1])
             
-            # If y[t] has any mask, skip filter calculation
-            # if (mask and self.xp.any(self.xp.ma.getmask(self.y[t]))) or ((not mask) and self.xp.any(self.xp.isnan(self.y[t]))) :
-            if self.xp.any(self.xp.isnan(self.y[t])):
+            # If y[t] is nan, skip filter calculation
+            if self.xp.any(self.xp.isnan(y[t])):
                 self.x_filt[t] = self.x_pred[t]
                 self.V_filt[t] = self.V_pred[t]
             else :
@@ -342,14 +345,13 @@ class KalmanFilter(object) :
                 K = self.V_pred[t] @ (
                     H.T @ self.xp.linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
                     )
-                # print("K: ", K)
                 self.x_filt[t] = self.x_pred[t] + K @ (
-                    self.y[t] - (H @ self.x_pred[t] + d)
+                    y[t] - (H @ self.x_pred[t] + d)
                     )
                 self.V_filt[t] = self.V_pred[t] - K @ (H @ self.V_pred[t])
     
 
-    def _predict_update_no_noise(self, t):
+    def _predict_update_without_noise_correlation(self, t, y_t=None):
         """Calculate fileter update without noise
 
         Args:
@@ -365,14 +367,14 @@ class KalmanFilter(object) :
         self.V_pred[t] = F @ self.V_filt[t-1] @ F.T + Q
 
 
-    def _predict_update_noise(self, t):
+    def _predict_update_with_noise_correlation(self, t, y_t):
         """Calculate fileter update without noise
 
         Args:
             t {int} : observation time
         """
-        if self.xp.any(self.xp.ma.getmask(self.y[t-1])) :
-            self._predict_update_no_noise(t)
+        if self.xp.any(self.xp.ma.getmask(y_t)):
+            self._predict_update_without_noise_correlation(t)
         else:
             # extract parameters for time t-1
             F = _last_dims(self.F, t - 1, 2)
@@ -386,7 +388,7 @@ class KalmanFilter(object) :
             # calculate predicted distribution for time t
             SR = S @ self.xp.linalg.pinv(R)
             F_SRH = F - SR @ H
-            self.x_pred[t] = F_SRH @ self.x_filt[t-1] + b + SR @ (self.y[t-1] - d)
+            self.x_pred[t] = F_SRH @ self.x_filt[t-1] + b + SR @ (y_t - d)
             self.V_pred[t] = F_SRH @ self.V_filt[t-1] @ F_SRH.T + Q - SR @ S.T
 
 
@@ -440,7 +442,7 @@ class KalmanFilter(object) :
                  + self.x_filt.shape[1] + '.')
 
 
-    def smooth(self):
+    def smooth(self, y=None):
         """Calculate RTS smooth for times.
 
         Args:
@@ -454,14 +456,15 @@ class KalmanFilter(object) :
             A [n_dim_sys, n_dim_sys] {numpy-array, float}
                 : fixed interval smoothed gain
         """
+        y = self._parse_y(y)
 
         # if not implement `filter`, implement `filter`
         try :
             self.x_pred[0]
         except :
-            self.forward()
+            self.forward(y)
 
-        T = self.y.shape[0]
+        T = y.shape[0]
         self.x_smooth = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
         self.V_smooth = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
@@ -489,8 +492,9 @@ class KalmanFilter(object) :
                 + self.xp.dot(A, self.xp.dot(self.V_smooth[t + 1] - self.V_pred[t + 1], A.T))
 
 
-    def fixed_lag_smooth(self, L=5):
-        T = self.y.shape[0]
+    def fixed_lag_smooth(self, L=5, y=None):
+        y = self._parse_y(y)
+        T = y.shape[0]
         self.x_pred = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
         self.V_pred = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
@@ -513,9 +517,9 @@ class KalmanFilter(object) :
             # If y[t] has any mask, skip filter calculation
             self.x_filt[t] = self.x_pred[t].copy()
             self.V_filt[t] = self.V_pred[t].copy()
-            if not self.xp.any(self.xp.isnan(self.y[t])):
+            if not self.xp.any(self.xp.isnan(y[t])):
                 # extract parameters for time t
-                self._filter_update_lag(t, L)
+                self._filter_update_lag(t, L, y[t])
 
 
     def _predict_update_lag(self, t, L):
@@ -536,7 +540,7 @@ class KalmanFilter(object) :
         self.V_pred[low:t] = self.V_filt[low:t] @ F.T
 
 
-    def _filter_update_lag(self, t, L):
+    def _filter_update_lag(self, t, L, y_t):
         H = _last_dims(self.H, t, 2)
         R = _last_dims(self.R, t, 2)
         d = _last_dims(self.d, t, 1)
@@ -549,10 +553,9 @@ class KalmanFilter(object) :
             H.T @ self.xp.linalg.pinv(H @ (self.V_pred[t] @ H.T) + R)
             )
         self.x_filt[low:t+1] = self.x_filt[low:t+1] + K @ (
-            self.y[t] - (H @ self.x_pred[t] + d)
+            y_t - (H @ self.x_pred[t] + d)
             )
         self.V_filt[low:t+1] = self.V_pred[low:t+1] - K @ (H @ self.V_pred[t])
-        # only s=0
 
             
     def get_smoothed_value(self, dim = None):
@@ -580,7 +583,7 @@ class KalmanFilter(object) :
                  + self.x_smooth.shape[1] + '.')
 
 
-    def em(self, n_iter = 10, em_vars = None, save_name = None, save_states = [], save_em_vars = []):
+    def em(self, n_iter=10, em_vars=None, save_name=None, save_states=[], save_em_vars=[], y=None):
         """Apply the EM algorithm to estimate all parameters specified by `em_vars`.
 
         Args:
@@ -590,6 +593,7 @@ class KalmanFilter(object) :
                 : iterable of strings or 'all' variables to perform EM over.
                 Any variable not appearing here is left untouched.
         """
+        y = self._parse_y(y)
 
         # Create dictionary of variables not to perform EM
         if em_vars is None:
@@ -652,17 +656,17 @@ class KalmanFilter(object) :
 
             # Expectation step
             start_time = time.time()
-            self.forward()
+            self.forward(y)
             self.times[0] = time.time() - start_time
             
             # system covariance transition between time t and t-1
             start_time = time.time()
-            self._sigma_pair_smooth()
+            self._sigma_pair_smooth(T)
             self.times[1] = time.time() - start_time
 
             # Maximumization step
             start_time = time.time()
-            self._calc_em(given = given)
+            self._calc_em(y, given)
             self.times[2] = time.time() - start_time
 
             if save_on:
@@ -714,7 +718,7 @@ class KalmanFilter(object) :
                 + ' but your iself.xput is ' + str(Q.ndim) + '.')
 
 
-    def _sigma_pair_smooth(self):
+    def _sigma_pair_smooth(self, T):
         """Calculate covariance between hidden states at time t and t-1
 
         Attributes:
@@ -723,8 +727,6 @@ class KalmanFilter(object) :
                 : Covariance between hidden states at times t and t-1
                  for t = [1...n_timesteps-1].  Time 0 is ignored.
         """
-
-        T = self.y.shape[0]
         self.x_smooth = self.xp.zeros((T, self.n_dim_sys), dtype = self.dtype)
         self.V_smooth = self.xp.zeros((T, self.n_dim_sys, self.n_dim_sys),
              dtype = self.dtype)
@@ -759,15 +761,14 @@ class KalmanFilter(object) :
             self.V_pair[t + 1] = self.xp.dot(self.V_smooth[t + 1], A.T) # self.V_smooth[t]
 
 
-    def _calc_em(self, given = {}):
+    def _calc_em(self, y, given={}):
         """Calculate parameters by EM algorithm
 
         Attributes:
             T {int} : length of observation y
         """
-
         # length of y
-        T = self.y.shape[0]
+        T = y.shape[0]
 
         # update `observation_matrices`
         if 'observation_matrices' not in given:
@@ -782,10 +783,9 @@ class KalmanFilter(object) :
             res2 = self.xp.zeros((self.n_dim_sys, self.n_dim_sys), dtype = self.dtype)
 
             for t in range(T):
-                # if not self.xp.any(self.xp.ma.getmask(self.y[t])):
-                if not self.xp.any(self.xp.isnan(self.y[t])):
+                if not self.xp.any(self.xp.isnan(y[t])):
                     d = _last_dims(self.d, t, 1)
-                    res1 += self.xp.outer(self.y[t] - d, self.x_smooth[t])
+                    res1 += self.xp.outer(y[t] - d, self.x_smooth[t])
                     res2 += self.V_smooth[t] \
                         + self.xp.outer(self.x_smooth[t], self.x_smooth[t])
 
@@ -808,9 +808,8 @@ class KalmanFilter(object) :
             # y : n_time x n_obs, d : n_obs
             # H : n_obs x n_sys, x_smooth : n_time x n_sys
             # err : n_time x n_obs
-            # boolm = ~self.xp.any(self.y.mask, axis=1)
-            boolm = self.xp.any(self.xp.isnan(self.y), axis=1)
-            err = self.y[boolm] - (self.H @ self.x_smooth[boolm].T).T \
+            boolm = self.xp.any(self.xp.isnan(y), axis=1)
+            err = y[boolm] - (self.H @ self.x_smooth[boolm].T).T \
                  - self.d.reshape(1,len(self.d))
             res1 = err.T @ err + self.H @ self.V_smooth[boolm].sum(axis=0) @ self.H.T
             n_obs = boolm.astype(self.xp.int).sum()
@@ -999,11 +998,19 @@ class KalmanFilter(object) :
             self.d = self.xp.zeros(self.n_dim_obs, dtype = self.dtype)
             n_obs = 0
             for t in range(T):
-                # if not self.xp.any(self.xp.ma.getmask(self.y[t])):
-                if not self.xp.any(self.xp.isnan(self.y[t])):
+                if not self.xp.any(self.xp.isnan(y[t])):
                     H = _last_dims(self.H, t)
-                    self.d += self.y[t] - self.xp.dot(H, self.x_smooth[t])
+                    self.d += y[t] - self.xp.dot(H, self.x_smooth[t])
                     n_obs += 1
             if n_obs > 0:
                 self.d *= (1.0 / n_obs)
 
+
+    def _parse_y(y):
+        if y is None:
+            y = self.y
+        else:
+            if y.ndim!=2 or y.shape[1]!=self.n_dim_obs:
+                raise ValueError("The shape of observations must be [T,{}]. ".format(self.n_dim_obs)
+                                + "However, the shape of the given argument is {}".format(y.shape))
+        return y

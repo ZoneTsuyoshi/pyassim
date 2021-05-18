@@ -1,7 +1,9 @@
 # Copyright (c) The pyakalman developers.
 # All rights reserved.
 """
-utility functions
+Utility functions
+"_determine_dimensionality", "_parse_observations", and "_last_dims" functions are originally provided in pykalman.
+The other functions are original in this package.
 """
 
 import numpy as np
@@ -11,11 +13,13 @@ except:
     pass
 
 
+
 def judge_xp_type(xp_type = "numpy"):
     if xp_type in ["numpy", False]:
         return np
     elif xp_type in ["cupy", True]:
         return cupy
+
 
 
 def _determine_dimensionality(variables, default = None, xp_type = "numpy"):
