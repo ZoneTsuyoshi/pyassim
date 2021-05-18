@@ -35,7 +35,7 @@ Please see the codes under `samples/`
 - `sample_Lorenz.py` is an example w.r.t. EnKF, NEnKF, PF, and GPF through a twin experiment of Lorenz 63 model.
 
 
-This repository includes following methods:
+`pyassim` provides easy implementation for following methods:
 | Methods | Paper | link |
 | :-- | :-- | :-- |
 | Kalman Filter (KF) | Kalman R.E. (1960): A New Approach to Linear Filtering and Prediction Problems | [ASME](https://asmedigitalcollection.asme.org/fluidsengineering/article-abstract/82/1/35/397706/A-New-Approach-to-Linear-Filtering-and-Prediction?redirectedFrom=fulltext) |
