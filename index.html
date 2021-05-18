@@ -150,13 +150,13 @@ $ sudo python setup.py install
         <h4>Mathematical Notation</h4>
         <p>This class assumes linear Gaussian state space model</p>
         \begin{align*}
-            x_{t+1}   &= F_{t} x_{t} + b_{t} + G_{t} v_{t} \\
-            y_{t}     &= H_{t} x_{t} + d_{t} + w_{t} \\
-            [v_{t}, w_{t}]^T &\sim N(0, [[Q_{t}, S_{t}], [S_{t}, R_{t}]])
+            x_{t+1}   &= F_{t} x_{t} + b_{t} + G_{t} v_{t}, \\
+            y_{t}     &= H_{t} x_{t} + d_{t} + w_{t}, \\
+            [v_{t}, w_{t}]^T &\sim N\left(0, \begin{pmatrix} Q_{t} & S_{t} \\ S_{t} & R_{t} \end{pmatrix}\right).
         \end{align*}
         <h4>Arguments</h4>
         <ul>
-            <li></li>
+            <li>observation ($T,N_y$): observation values $\{y_t\}_{t=1}^T$</li>
             <li></li>
             <li></li>
             <li></li>
