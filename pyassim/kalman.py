@@ -7,7 +7,6 @@ EM Algorithm for Linear-Gaussian state space models
 We started from KalmanFilter class of pykalman and heavily refactored it for new functionality.
 """
 
-import math
 import time
 
 import numpy as np
