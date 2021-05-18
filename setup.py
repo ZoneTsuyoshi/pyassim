@@ -24,6 +24,7 @@ setup(
     url='https://github.com/ZoneTsuyoshi/pyassim',
     license=license,
     packages=find_packages(include=('pyassim')),
+    package_dir={"pyassim":"pyassim"},
     py_modules=["math", "logging", "os", "time", "multiprocessing", "itertools", "inspect"],
     test_suite='tests',
     classifier=[
