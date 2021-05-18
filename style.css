@@ -23,7 +23,7 @@ code{
     border: solid 1px #d6dde4;
 }
 
-/* pre code{
-    background-color: #000;
-    color: #fff;
-} */
+pre{
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
