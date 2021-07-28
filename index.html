@@ -135,7 +135,7 @@ $ sudo python setup.py install</pre>
 
 
         <h3 id="kf">KalmanFilter</h3>
-        <pre>
+        <dt><p>
             KalmanFilter(observation = None,
                 initial_mean = None, initial_covariance = None,
                 transition_matrices = None, observation_matrices = None,
@@ -151,8 +151,8 @@ $ sudo python setup.py install</pre>
                 observation_vh_length = None, 
                 n_dim_sys = None, n_dim_obs = None, dtype = "float32",
                 xp_type = "numpy")
-        </pre>
-        <h4>Mathematical Notation</h4>
+        </p></dt>
+        <dd>
         <p>This class assumes linear Gaussian state space model</p>
         \begin{align*}
             x_{t+1}   &= F_{t} x_{t} + b_{t} + G_{t} v_{t}, \\
@@ -160,79 +160,108 @@ $ sudo python setup.py install</pre>
             [v_{t}, w_{t}]^T &\sim N\left(0, \begin{pmatrix} Q_{t} & S_{t}^T \\ S_{t} & R_{t} \end{pmatrix}\right),
         \end{align*}
         where $x_t, b_t\in\mathbb{R}^{N_x}$, $y_t, d_t\in\mathbb{R}^{N_y}$, and $v_t\in\mathbb{R}^{N_v}$.
-        <h4>Arguments</h4>
-        <ul>
-            <li>observation: ndarray of shape $(T,N_y)$<br>
-                Observation values $\{y_t\}_{t=1}^T$.</li>
-            <li>initial_mean: ndarray of shape $(N_x)$<br>
-                Initial state mean $x_1\in\mathbb{R}^{N_x}$</li>
-            <li>initial_covariance: ndarray of shape $(N_x,N_x)$<br>
-                Initial state covariance $V_1=\mathrm{Cov}(x_1,x_1)\in\mathbb{R}^{N_x\times N_x}$</li>
-            <li>transition_matrices: ndarray of shape $(T-1,N_x,N_x)$ or $(N_x,N_x)$<br>
+        <table class="docutils field-list" frame="void" rules="none">
+        <tbody valign="top">
+        <tr class="field-odd field">
+            <th class="field-name">Parameters:</th>
+            <td class="field-body">
+            <p class="first"><b>observation: ndarray of shape $(T,N_y)$</b></p>
+                <blockquote><div><p>
+                Observation values $\{y_t\}_{t=1}^T$.
+                </p></div></blockquote>
+            <p><b>initial_mean: ndarray of shape $(N_x)$</b></p>
+                <blockquate><div><p>
+                Initial state mean $x_1\in\mathbb{R}^{N_x}$</p></div></blockquate>
+            <p><b>initial_covariance: ndarray of shape $(N_x,N_x)$</b></p>
+                <blockquate><div><p>
+                Initial state covariance $V_1=\mathrm{Cov}(x_1,x_1)\in\mathbb{R}^{N_x\times N_x}$</p></div></blockquate>
+            <p><b>transition_matrices: ndarray of shape $(T-1,N_x,N_x)$ or $(N_x,N_x)$</b></p>
+                <blockquate><div><p>
                 Transition matrices $\{F_t\}_{t=1}^{T-1}$.
                 If input shape is $(N_x,N_x)$, transition matrix is time-invariant $F\in\mathbb{R}^{N_x,N_x}$.
-                Default value is time-invariant identity matrix $F=I$</li>
-            <li>observation_matrices: ndarray of shape $(T,N_y,N_x)$ or $(N_y,N_x)$<br>
+                Default value is time-invariant identity matrix $F=I$</p></div></blockquate>
+            <p><b>observation_matrices: ndarray of shape $(T,N_y,N_x)$ or $(N_y,N_x)$</b></p>
+                <blockquate><div><p>
                 Observation matrices $\{H_t\}_{t=1}^{T}$.
                 If input shape is $(N_y,N_x)$, observation matrix is time-invariant $H\in\mathbb{R}^{N_y,N_x}$.
-                Default value is time-invariant identity matrix $H=I$</li>
-            <li>transition_covariance: ndarray of shape $(T-1,N_v,N_v)$ or $(N_v,N_v)$<br>
+                Default value is time-invariant identity matrix $H=I$</p></div></blockquate>
+            <p><b>transition_covariance: ndarray of shape $(T-1,N_v,N_v)$ or $(N_v,N_v)$</b></p>
+                <blockquate><div><p>
                 Transition covariance $\{Q_t\}_{t=1}^{T-1}$.
                 If input shape is $(N_v,N_v)$, transition covariance is time-invariant $Q\in\mathbb{R}^{N_v,N_v}$.
-                Default value is time-invariant identity matrix $Q=I$</li>
-            <li>observation_covariance: ndarray of shape $(T,N_y,N_y)$ or $(N_y,N_y)$<br>
+                Default value is time-invariant identity matrix $Q=I$</p></div></blockquate>
+            <p><b>observation_covariance: ndarray of shape $(T,N_y,N_y)$ or $(N_y,N_y)$</b></p>
+                <blockquate><div><p>
                 Observation covariance $\{R_t\}_{t=1}^{T}$.
                 If input shape is $(N_y,N_y)$, observation covariance is time-invariant $R\in\mathbb{R}^{N_y,N_y}$.
-                Default value is time-invariant identity matrix $R=I$</li>
-            <li>transition_noise_matrices: ndarray of shape $(T-1,N_x,N_v)$ or $(N_x,N_v)$<br>
+                Default value is time-invariant identity matrix $R=I$</p></div></blockquate>
+            <p><b>transition_noise_matrices: ndarray of shape $(T-1,N_x,N_v)$ or $(N_x,N_v)$</b></p>
+                <blockquate><div><p>
                 Transition noise matrices $\{G_t\}_{t=1}^{T-1}$.
                 If input shape is $(N_x,N_v)$, transition matrix is time-invariant $G\in\mathbb{R}^{N_x,N_v}$.
                 Default value is time-invariant identity matrix $G=I$.
-                If this argument is None, the noise dimension $N_v=N_x$</li>
-            <li>transition_offsets: ndarray of shape $(T-1,N_x)$ or $(N_x,)$<br>
+                If this argument is None, the noise dimension $N_v=N_x$</p></div></blockquate>
+            <p><b>transition_offsets: ndarray of shape $(T-1,N_x)$ or $(N_x,)$</b></p>
+                <blockquate><div><p>
                 Transition offset vectors $\{b_t\}_{t=1}^{T-1}$.
                 If input shape is $(N_x)$, transition offset is time-invariant $b\in\mathbb{R}^{N_x}$.
-                Default value is time-invariant zero vector $b=0$</li>
-            <li>observation_offsets: ndarray of shape $(T,N_y)$ or $(N_y,)$<br>
+                Default value is time-invariant zero vector $b=0$</p></div></blockquate>
+            <p><b>observation_offsets: ndarray of shape $(T,N_y)$ or $(N_y,)$</b></p>
+                <blockquate><div><p>
                 Observation offset vectors $\{d_t\}_{t=1}^{T}$.
                 If input shape is $(N_y)$, observation offset is time-invariant $d\in\mathbb{R}^{N_y}$.
-                Default value is time-invariant zero vector $d=0$</li>
-            <li>transition_observation_covariance: ndarray of shape $(T,N_y,N_v)$ or $(N_y,N_v)$<br>
+                Default value is time-invariant zero vector $d=0$</p></div></blockquate>
+            <p><b>transition_observation_covariance: ndarray of shape $(T,N_y,N_v)$ or $(N_y,N_v)$</b></p>
+                <blockquate><div><p>
                 Transition observation covariance $\{S_t\}_{t=1}^{T-1}$.
                 If input shape is $(N_y,N_v)$, transition observation covariance is time-invariant $S\in\mathbb{R}^{N_y,N_v}$.
-                Default value is time-invariant zero matrix $S=O$</li>
-            <li>em_vars: list<br>
+                Default value is time-invariant zero matrix $S=O$</p></div></blockquate>
+            <p><b>em_vars: list</b></p>
+                <blockquate><div><p>
                 Learning variables in EM algorithm.
                 Subset of ["transition_matrices", "observation_matrices", "transition_offsets", "observation_offsets", 
-                "transition_covariance", "observation_covariance", "initial_mean", "initial_covariance"]</li>
-            <li>transition_covariance_structure: {"all", "triD1", "triD2"}, default=all<br>
+                "transition_covariance", "observation_covariance", "initial_mean", "initial_covariance"]</p></div></blockquate>
+            <p><b>transition_covariance_structure: {"all", "triD1", "triD2"}, default=all</b></p>
+                <blockquate><div><p>
                 Covariance structure for transition matrix in EM algorithm.
-                All elements of the matrix are optimized if "all", while tridiagonal elements are only optimized for systems in 1/2 dimensional lattice space if "triD1" or "tri2D", respectively.</li>
-            <li>observation_covariance_structure: {"all", "triD1", "triD2"}, default=all<br>
+                All elements of the matrix are optimized if "all", while tridiagonal elements are only optimized for systems in 1/2 dimensional lattice space if "triD1" or "tri2D", respectively.</p></div></blockquate>
+            <p><b>observation_covariance_structure: {"all", "triD1", "triD2"}, default=all</b></p>
+                <blockquate><div><p>
                 Covariance structure for observation matrix in EM algorithm.
-                All elements of the matrix are optimized if "all", while tridiagonal elements are only optimized for observations in 1/2 dimensional lattice space if "triD1" or "tri2D", respectively.</li>
-            <li>transition_vh_length: [int, int]<br>
+                All elements of the matrix are optimized if "all", while tridiagonal elements are only optimized for observations in 1/2 dimensional lattice space if "triD1" or "tri2D", respectively.</p></div></blockquate>
+            <p><b>transition_vh_length: [int, int]</b></p>
+                <blockquate><div><p>
                 The first element is the number of vertical lattice points if system variables are 2-dimensional lattice.
-                The second element is the number of horizontal lattice points if system variables are 2-dimensional lattice.</li>
-            <li>transition_vh_length: [int, int]<br>
+                The second element is the number of horizontal lattice points if system variables are 2-dimensional lattice.</p></div></blockquate>
+            <p><b>transition_vh_length: [int, int]</b></p>
+                <blockquate><div><p>
                 The first element is the number of vertical lattice points if system variables are 2-dimensional lattice.
-                The second element is the number of horizontal lattice points if system variables are 2-dimensional lattice.</li>
-            <li>observation_vh_length: [int, int]<br>
+                The second element is the number of horizontal lattice points if system variables are 2-dimensional lattice.</p></div></blockquate>
+            <p><b>observation_vh_length: [int, int]</b></p>
+                <blockquate><div><p>
                 The first element is the number of vertical lattice points if observation variables are 2-dimensional lattice.
-                The second element is the number of horizontal lattice points if observation variables are 2-dimensional lattice.</li>
-            <li>n_dim_sys: int<br>
+                The second element is the number of horizontal lattice points if observation variables are 2-dimensional lattice.</p></div></blockquate>
+            <p><b>n_dim_sys: int</b></p>
+                <blockquate><div><p>
                 Dimension of system variabels $N_x$.
-                If None, this argument is automatically determined by transition_matrices, transition_offsets, transition_noise_matrices, initial_mean, initial_covariance, observation_matrices, and transition_observation_covariance.</li>
-            <li>n_dim_obs: int<br>
+                If None, this argument is automatically determined by transition_matrices, transition_offsets, transition_noise_matrices, initial_mean, initial_covariance, observation_matrices, and transition_observation_covariance.</p></div></blockquate>
+            <p><b>n_dim_obs: int</b></p><blockquate>
+                <div><p>
                 Dimension of observation variables $N_y$.
-                If None, this argument is automatically determined by observation_matrices, observation_offsets, observation_covariance, and transition_observation_covariance.</li>
-            <li>dtype: {"float32", "float64"}<br>
-                Data type of ndarray.</li>
-            <li>xp_type: {"numpy", "cupy"}<br>
-                Pacakge name for array computation.</li>
-        </ul>
+                If None, this argument is automatically determined by observation_matrices, observation_offsets, observation_covariance, and transition_observation_covariance.</p></div></blockquate>
+            <p><b>dtype: {"float32", "float64"}</b></p>
+                <blockquate><div><p>
+                Data type of ndarray.
+                </p></div></blockquate>
+            <p><b>xp_type: {"numpy", "cupy"}</b></p>
+                <blockquate><div><p>
+                Pacakge name for array computation.
+                </p></div></blockquate>
+            </td>
+        </tr></tbody></table>
         <h4>Functions</h4>
-        
+
+        </dd>
     </div>
     </div>
     </div>
