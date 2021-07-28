@@ -70,7 +70,7 @@ $ sudo python setup.py install</pre>
         <p>
             <code>pyassim</code> provides easy implementation for following methods:
         </p>
-        <table>
+        <table border="1" class="longtable docutils">
             <thead>
                 <tr>
                     <th>Class</th>
@@ -161,9 +161,11 @@ $ sudo python setup.py install</pre>
         \end{align*}
         where $x_t, b_t\in\mathbb{R}^{N_x}$, $y_t, d_t\in\mathbb{R}^{N_y}$, and $v_t\in\mathbb{R}^{N_v}$.
         <table class="docutils field-list" frame="void" rules="none">
+        <col class="field-name" />
+        <col class="field-body" />
         <tbody valign="top">
         <tr class="field-odd field">
-            <th class="field-name">Parameters:</th>
+            <th class="field-name">Parameters: </th>
             <td class="field-body">
             <p class="first"><b>observation: ndarray of shape $(T,N_y)$</b></p>
                 <blockquote><div><p>
@@ -254,11 +256,44 @@ $ sudo python setup.py install</pre>
                 Data type of ndarray.
                 </p></div></blockquate>
             <p><b>xp_type: {"numpy", "cupy"}</b></p>
-                <blockquate><div><p>
+                <blockquate class="last"><div><p>
                 Pacakge name for array computation.
                 </p></div></blockquate>
             </td>
         </tr></tbody></table>
+        <p class="rubric">Methods</p>
+        <table border="1" class="longtable docutils">
+            <colgroup>
+                <col width="10%" />
+                <col width="90%" />
+            </colgroup>
+        <tbody valign="top">
+            <tr class="row-odd">
+                <td><a class="reference internal" href="#kf.forward" title="kf.forward"><span class="pre">forward</span></a>([y])</td>
+                <td>Apply the Kalman filter</td>
+            </tr>
+            <tr class="row-even">
+                <td><a class="reference internal" href="#kf.smooth" title="kf.smooth"><span class="pre">smooth</span></a>([y])</td>
+                <td>Apply the RTS smoother</td>
+            </tr>
+            <tr class="row-odd">
+                <td><a class="reference internal" href="#kf.fixed_lag_smooth" title="kf.fixed_lag_smooth"><span class="pre">fixed_lag_smooth</span></a>(L,[y])</td>
+                <td>Apply the fixed lag Kalman smoother</td>
+            </tr>
+            <tr class="row-even">
+                <td><a class="reference internal" href="#kf.em" title="kf.em"><span class="pre">em</span></a>(n_iter, [em_vars, save_name, save_state, save_em_vars, y])</td>
+                <td>Apply the EM algorithm</td>
+            </tr>
+            <tr class="row-odd">
+                <td><a class="reference internal" href="#kf.get_filtered_value" title="kf.get_filtered_value"><span class="pre">get_filtered_value</span></a>([dim])</td>
+                <td>Get the filtered state estimates</td>
+            </tr>
+            <tr class="row-even">
+                <td><a class="reference internal" href="#kf.get_smoothed_value" title="kf.get_smoothed_value"><span class="pre">get_smoothed_value</span></a>([dim])</td>
+                <td>Get the smoothed state estimates</td>
+            </tr>
+        </tbody>
+        </table>
         <h4>Functions</h4>
 
         </dd>
