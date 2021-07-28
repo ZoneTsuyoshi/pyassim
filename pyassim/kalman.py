@@ -593,6 +593,7 @@ class KalmanFilter(object) :
                 Any variable not appearing here is left untouched.
         """
         y = self._parse_y(y)
+        T = len(y)
 
         # Create dictionary of variables not to perform EM
         if em_vars is None:
@@ -1005,7 +1006,7 @@ class KalmanFilter(object) :
                 self.d *= (1.0 / n_obs)
 
 
-    def _parse_y(y):
+    def _parse_y(self, y):
         if y is None:
             y = self.y
         else:

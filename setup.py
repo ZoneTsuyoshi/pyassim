@@ -27,7 +27,7 @@ setup(
     py_modules=["math", "logging", "os", "time", "multiprocessing", "itertools", "inspect"],
     test_suite='tests',
     classifier=[
-        'Development Status :: 3 - Alpha',
+        "Development Status :: 3 - Alpha",
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
