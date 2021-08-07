@@ -285,16 +285,132 @@ $ sudo python setup.py install</pre>
                 <td>Apply the EM algorithm</td>
             </tr>
             <tr class="row-odd">
+                <td><a class="reference internal" href="#kf.get_predicted_value" title="kf.get_predicted_value"><span class="pre">get_predicted_value</span></a>([dim])</td>
+                <td>Get the predicted state estimates</td>
+            </tr>
+            <tr class="row-even">
                 <td><a class="reference internal" href="#kf.get_filtered_value" title="kf.get_filtered_value"><span class="pre">get_filtered_value</span></a>([dim])</td>
                 <td>Get the filtered state estimates</td>
             </tr>
-            <tr class="row-even">
+            <tr class="row-odd">
                 <td><a class="reference internal" href="#kf.get_smoothed_value" title="kf.get_smoothed_value"><span class="pre">get_smoothed_value</span></a>([dim])</td>
                 <td>Get the smoothed state estimates</td>
             </tr>
         </tbody>
         </table>
+        </dd>
 
+
+
+        <h3 id="enkf">EnsembleKalmanFilter</h3>
+        <dt><p>
+            KalmanFilter(observation = None, transition_functions = None,
+                observation_matrices = None, initial_mean = None,
+                initial_covariance = None,
+                transition_noise = None, observation_covariance = None,
+                n_dim_sys = None, n_dim_obs = None, dtype = "float32",
+                xp_type = "numpy", seed = 0)
+        </p></dt>
+
+        <dd>
+        <p>This class assumes following state space model</p>
+        \begin{align*}
+            x_{t+1}   &= f_{t} (x_{t}, v_{t}), \\
+            y_{t}     &= H_{t} x_{t} + w_{t}, \\
+            v_{t}     &\sim p_v(v_{t}),\\
+            w_{t}     &\sim N(0, R_t) 
+        \end{align*}
+        where $x_t, v_t\in\mathbb{R}^{N_x}$, $y_t, w_t\in\mathbb{R}^{N_y}$.
+
+        <table class="docutils field-list" frame="void" rules="none">
+        <col class="field-name" />
+        <col class="field-body" />
+        <tbody valign="top">
+        <tr class="field-odd field">
+            <th class="field-name">Parameters: </th>
+            <td class="field-body">
+            <p class="first"><b>observation: ndarray of shape $(T,N_y)$</b></p>
+                <blockquote><div><p>
+                Observation values $\{y_t\}_{t=1}^T$.
+                </p></div></blockquote>
+            <p><b>transition_functions: list of functions or a function</b></p>
+                <blockquate><div><p>
+                Transition functions $\{f_t(\cdot,\cdot)\}_{t=1}^{T}$.
+                If input type is function, transition function is time-invariant $f$.
+                Default value is time-invariant random walk $f(x,v)=x+v$</p></div></blockquate>
+            <p><b>observation_matrices: ndarray of shape $(T,N_y,N_x)$ or $(N_y,N_x)$</b></p>
+                <blockquate><div><p>
+                Observation matrices $\{H_t\}_{t=1}^{T}$.
+                If input shape is $(N_y,N_x)$, observation matrix is time-invariant $H\in\mathbb{R}^{N_y,N_x}$.
+                Default value is time-invariant identity matrix $H=I$</p></div></blockquate>
+            <p><b>initial_mean: ndarray of shape $(N_x)$</b></p>
+                <blockquate><div><p>
+                Initial state mean $x_1\in\mathbb{R}^{N_x}$</p></div></blockquate>
+            <p><b>initial_covariance: ndarray of shape $(N_x,N_x)$</b></p>
+                <blockquate><div><p>
+                Initial state covariance $V_1=\mathrm{Cov}(x_1,x_1)\in\mathbb{R}^{N_x\times N_x}$</p></div></blockquate>
+            <p><b>transition_noise: [function, list of parameters for function]</b></p>
+                <blockquate><div><p>
+                The first element is the transition distribution $\{p_v(\cdot)\}$.
+                This default value is ``numpy.random.multivariate_normal" function.
+                The second element is the parameters of the distribution.
+                This default value is [$\mathbf{0}_{N_x}$, $I_{N_x}$].</p></div></blockquate>
+            <p><b>observation_covariance: ndarray of shape $(T,N_y,N_y)$ or $(N_y,N_y)$</b></p>
+                <blockquate><div><p>
+                Observation covariance $\{R_t\}_{t=1}^{T}$.
+                If input shape is $(N_y,N_y)$, observation covariance is time-invariant $R\in\mathbb{R}^{N_y,N_y}$.
+                Default value is time-invariant identity matrix $R=I$</p></div></blockquate>
+            <p><b>n_dim_sys: int</b></p>
+                <blockquate><div><p>
+                Dimension of system variabels $N_x$.
+                If None, this argument is automatically determined by initial_mean, initial_covariance, and observation_matrices.</p></div></blockquate>
+            <p><b>n_dim_obs: int</b></p><blockquate>
+                <div><p>
+                Dimension of observation variables $N_y$.
+                If None, this argument is automatically determined by observation_matrices and observation_covariance.</p></div></blockquate>
+            <p><b>dtype: {"float32", "float64"}</b></p>
+                <blockquate><div><p>
+                Data type of ndarray.
+                </p></div></blockquate>
+            <p><b>xp_type: {"numpy", "cupy"}</b></p>
+                <blockquate><div><p>
+                Pacakge name for array computation.
+                </p></div></blockquate>
+            <p><b>seed: int</b></p>
+                <blockquate class="last"><div><p>
+                Determines random number generation for sampling noise.
+                </p></div></blockquate>
+            </td>
+        </tr></tbody></table>
+        <p class="rubric">Methods</p>
+        <table border="0" class="longtable docutils">
+            <colgroup>
+                <col width="10%" />
+                <col width="90%" />
+            </colgroup>
+        <tbody valign="top">
+            <tr class="row-odd">
+                <td><a class="reference internal" href="#enkkf.forward" title="enkf.forward"><span class="pre">forward</span></a>([y])</td>
+                <td>Apply the ensemble Kalman filter</td>
+            </tr>
+            <tr class="row-even">
+                <td><a class="reference internal" href="#enkf.smooth" title="enkf.smooth"><span class="pre">smooth</span></a>(L,[y])</td>
+                <td>Apply the fixed lag ensemble Kalman smoother</td>
+            </tr>
+            <tr class="row-odd">
+                <td><a class="reference internal" href="#enkf.get_predicted_value" title="enkf.get_predicted_value"><span class="pre">get_predicted_value</span></a>([dim])</td>
+                <td>Get the predicted state estimates</td>
+            </tr>
+            <tr class="row-even">
+                <td><a class="reference internal" href="#enkf.get_filtered_value" title="enkf.get_filtered_value"><span class="pre">get_filtered_value</span></a>([dim])</td>
+                <td>Get the filtered state estimates</td>
+            </tr>
+            <tr class="row-odd">
+                <td><a class="reference internal" href="#enkf.get_smoothed_value" title="enkf.get_smoothed_value"><span class="pre">get_smoothed_value</span></a>([dim])</td>
+                <td>Get the smoothed state estimates</td>
+            </tr>
+        </tbody>
+        </table>
         </dd>
     </div>
     </div>
